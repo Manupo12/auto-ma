@@ -1,6 +1,5 @@
 # Secretos y credenciales
-.env
-*.env
+# .env — INCLUIDO (repo privado, decisión del dueño)
 credentials.*
 secrets.*
 
@@ -40,5 +39,6 @@ browser-use/
 # Frontend viejo si existe
 frontend/
 
-# Archivos grandes de informe
-*.md
+# Archivos grandes de informe (auditoría)
+INFORME_COMPLETO_SISTEMA*.md
+AUDITORIA_INSTRUCCIONES.md

@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Test script para Valoración del Desempeño Ocupacional Final
+Paciente: JUAN CARLOS DURAN NARVAEZ, CC 1193143688
+"""
+
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from backend.doc_generator import generar_valoracion_desempeno
+
+# Monkey-patch para saltar conversión PDF (LibreOffice no siempre disponible)
+import backend.doc_generator as dg
+_original_convertir = dg._convertir_a_pdf
+dg._convertir_a_pdf = lambda path: None
+
+datos = {
+    "paciente": {
+        "nombre": "JUAN CARLOS DURAN NARVAEZ",
+        "documento": "1193143688",
+        "fecha_nacimiento": "08/03/1991",
+        "edad": "35",
+        "dominancia": "Izquierda",
+        "estado_civil": "Casado",
+        "nivel_educativo": "Bachillerato: vocacional 9°",
+        "formacion_oficios": "No refiere",
+        "telefono": "3027218147",
+        "direccion": "Calle 1 H No 24-14 Barrio Alfonso López",
+        "zona": "Urbano",
+        "eps_ips": "Famisanar",
+        "afp": "Protección",
+    },
+    "empresa": {
+        "nombre": "BOLIVARIANA DE MINERALES Y CIA LTDA",
+        "nit": "860517272",
+        "contacto": "Ingrid Johan Vargas Reyes",
+        "cargo_contacto": "jefe Talento Humano",
+        "correo": "bolivarianamineralesgh@gmail.com",
+        "telefono": "3143009418",
+        "direccion": "KM 2 VIA NEIVA - PALERMO",
+    },
+    "laboral": {
+        "cargo": "Obrero de tratamiento roca",
+        "area": "",
+        "fecha_ingreso_cargo": "",
+        "antiguedad_cargo": "1 año 4 meses aprox.",
+        "fecha_ingreso_empresa": "16/12/2024",
+        "antiguedad_empresa": "1 año 4 meses aprox.",
+        "vinculacion": "SI",
+        "forma_vinculacion": "Fijo",
+        "modalidad": "Presencial",
+        "tiempo_modalidad": "1 año 4 meses aprox.",
+        "tareas": "Desatasca las piedras de la máquina trituradora con un gancho de hierro para facilitar que la maquina triture o parta las piedras, luego un montacarga pasa la piedra triturada a un molino para que quede más fina de 30, 40, 60 maya fina, de allí cae a otra tolva y la empaca en bultos de 50 kilos, llena el bultos de piedra fina lo pasa a otro compañero para que cosa el bulto y lo envía a una banda y lo transporta para que ya sea llevado por un carro o a la bodega. Estas tareas se rotan. Sacan entre 40 a 50 toneladas equivalente entre 800 a 1000 bultos, materia prima de fertilizante.",
+        "herramientas": "gancho de hierro, pala, barra, tubo de hierro",
+        "horario": "5:00 am a 1:00 pm de lunes a sábados, de 1:00 pm a 9:00 pm, disponibilidad para desayunar en el turno de la mañana a las 8:00 am durante 15 minutos y en el turno de la tarde a las 7:00 pm durante 15 minutos para la cena, con disponibilidad para hidratación y para realizar pausas activas.",
+        "epp": "Guantes de carnaza en la triturada, casco, gafas, tapabocas, botas de seguridad, camisa manga larga Jens, tapa oídos de inserción y de copa.",
+        "requerimientos_motrices": "La mayor parte del tiempo en posición bípeda dinámica, levanta y traslada sacos o fragmentos de roca con movimientos de miembro superiores de agarre, pinza, empuje tracción, necesario para el manejo de palancas de trituradoras, posicionamiento de cintas transportadoras y uso de herramientas.",
+        "ocurrencia_atel": "SI",
+        "lugar_atel": "PUESTO DE TRABAJO",
+    },
+    "siniestro": {
+        "id_siniestro": "503463870",
+        "fecha_evento": "02/03/2026",
+        "diagnosticos": "S611 HERIDA DEL CUARTO DEDO DE LA MANO DERECHA / S601 CONTUSIÓN DEL CUARTO DEDO DE LA MANO DERECHA / S626 FRACTURA DE LA FALANGE DISTAL DEL CUARTO DEDO DE LA MANO DERECHA",
+        "tiempo_incapacidad": "Sin datos",
+        "eventos_no_laborales": "No",
+        "pcl_aplica": False,
+        "pcl_porcentaje": "",
+    },
+    "consulta": {
+        "fecha": "06/04/2026",
+        "objetivo": "Permitir la construcción de un perfil de función y discapacidad que tenga en cuenta las deficiencias, las limitaciones en la actividad y las restricciones en la participación para orientar acerca de las posibilidades ocupacionales del trabajador, los requerimientos de la ocupación y las oportunidades o restricciones que se encuentran en el entorno para la plena participación del usuario en el ejercicio de su rol en el trabajo.",
+    },
+    "historia_ocupacional": [
+        {
+            "empresa": "BOLIVARIANA DE MINERALES Y CIA LTDA",
+            "cargo": "Obrero de tratamiento roca",
+            "duracion": "1 año 4 meses aprox.",
+            "motivo_retiro": "Actualmente",
+        },
+        {
+            "empresa": "EJERCITO NACIONAL",
+            "cargo": "Soldado Profesional",
+            "duracion": "9 años",
+            "motivo_retiro": "Voluntario",
+        },
+    ],
+    "otros_oficios": "Refiere que los anteriores.",
+    "oficios_interes": "Lectura día durante 1 hora, salir al parque con su hija, caminata de 2 a 3 veces por semana durante 1 hora.",
+    "rol_laboral": {
+        "tareas_operaciones": "Presenta disminución de la fuerza de agarre, pinza, movilidad y la motricidad fina del cuarto dedo de mano derecha.",
+        "sensorio_motor": "El trabajador menciona que presenta dificultad para el manejo de herramientas, para sostener y realizar agarres con la mano y con el 4 dedo mano derecha, refiere que en las actividades de la vida diaria trata de no utilizar el 4 dedo para evitar dolor.",
+        "cognitivo": "Sin dificultad en los procesos cognitivos (atención, concentración, memoria, resolución de problemas).",
+        "psicologicos": "Refiere que está desmotivado por el dolor piensa que lo van a excluir de sus labores.",
+        "social": "En lo social refiere no tener dificultad. En lo familiar se ha visto afectado porque el salario se ha disminuido por la incapacidad.",
+        "tiempo_ejecucion": "Afiliado se encuentra en incapacidad.",
+        "forma_integracion": "Reintegro con modificaciones.",
+    },
+    "tratamiento_atel": [
+        {
+            "fecha": "17/03/2026",
+            "especialidad": "FISIATRIA",
+            "ips": "IPS RILO",
+            "contenido": "ENFERMEDAD ACTUAL: Descripción FURAT/FUREL: EL 2-3-2026 TUVO TRAUMA CONTUSO AL CAER UNA ROCA QUE FUE EXPULSADA POR UNA MAQUINA TRITURADORA DE ROCA, CAYENDO EN DORSO DE LA MANO DERECHA, PRESENTANDO HERIDA A NIVEL DE FALANGE DISTAL DEL 4° DEDO DE LA MANO QUE FUE MANEJADA CON DEBRIDAMIENTO POR PRESENCIA DE HERIDA CON BORDES NECROTICOS Y EXPOSICION OSEA CON DAÑO PARCIAL DE MATRIZ UNGUEAL, REQUIRIENDO DE COLGAJO DE PIEL Y DESBRIDAMIENTO. RECIBIO MANEJO CON CEFALEXINA QUE TERMINO HACE 4 DIAS, PERO HOY NOTO PRESENCIA DE SECRECION PURULENTA POR HERIDA SUTURADA.\nOsteomuscular: RANGO DE MOVILIDAD PASIVO EN 4° DEDO DE MANO DERECHA: METACARPOFALANGICA FLEXION 90°, EXTENSION 0°. INTERFALANGICA PROXIMAL FLEXION 110°, EXTENSION 0°. INTERFALANGICA DISTAL FLEXION 30°, EXTENSION 0°. HERIDA A NIVEL DEL BORDE RADIAL DEL TERCIO DISTAL DEL 4° DEDO DE LA MANO DERECHA SUTURADA YA CICATRIZADA, NO SIGNOS INFLAMATORIOS, NO SECRECION. NO OBSERVO SOLUCION DE CONTINUIDAD.\nNeurológico: FUERZA, SENSIBILIDAD Y REFLEJOS CONSERVADOS.\nANÁLISIS-RECOMENDACIONES: PACIENTE QUE TUVO TRAUMA CONTUSO A NIVEL DISTAL DEL 4° DEDO DE LA MANO DERECHA QUE REQUIRIO DE DEBRIDAMIENTO Y COLGAJO PARA CIERRE DE HERIDA, CON EVOLUCION FAVORABLE, EN EL MOMENTO SIN SIGNOS DE INFECCION. INCAPACIDAD SE VENCE EL 20 DE MARZO DE 2026.\nPLAN DE MANEJO: SS RX DE MANO DERECHA. INCAPACIDAD POR 15 DIAS Y LUEGO REINGRESAR A SU LABOR. PENDIENTE RETIRO DE PUNTOS. PUEDE INICIAR TERAPIA OCUPACIONAL PARA MEJORAR EL RANGO DE MOVILIDAD, YA TIENE ORDEN. CONTROL EN 1 MES.",
+        },
+        {
+            "fecha": "13/03/2026",
+            "especialidad": "MEDICINA LABORAL",
+            "ips": "IPS RILO",
+            "contenido": "ANÁLISIS-RECOMENDACIONES: PACIENTE EN BUEN ESTADO GENERAL, CON ADECUADA EVOLUCIÓN POSTOPERATORIA. AL EXAMEN FÍSICO NO SE EVIDENCIAN SIGNOS DE INFECCIÓN NI SANGRADO ACTIVO EN LA ZONA INTERVENIDA DEL CUARTO DEDO DE LA MANO DERECHA. DADO EL ESTADO ACTUAL Y CON EL OBJETIVO DE FAVORECER LA RECUPERACIÓN FUNCIONAL DEL DEDO AFECTADO, SE DECIDE REMITIR A VALORACIÓN POR FISIATRÍA E INICIAR TERAPIAS FÍSICAS UNA VEZ SE REALICE EL RETIRO DE LOS PUNTOS. SE PROGRAMA CITA DE CONTROL EN UN MES PARA EVALUAR EVOLUCIÓN CLÍNICA Y REVISAR CONCEPTO DE FISIATRÍA, CON EL FIN DE DEFINIR CONTINUIDAD DEL MANEJO Y PROCESO DE REHABILITACIÓN FUNCIONAL.\nPLAN DE MANEJO: 1. REMISIÓN A FISIATRÍA PARA VALORACIÓN Y FORMULACIÓN DE PLAN DE REHABILITACIÓN. 2. INICIAR TERAPIAS FÍSICAS UNA VEZ SE REALICE EL RETIRO DE PUNTOS, ENFOCADAS EN RECUPERACIÓN FUNCIONAL DEL CUARTO DEDO DE LA MANO DERECHA. 3. CONTINUAR MANEJO ANALGÉSICO SEGÚN FORMULACIÓN MÉDICA. 4. VIGILANCIA DE SIGNOS DE ALARMA: AUMENTO DEL DOLOR, ENROJECIMIENTO, CALOR LOCAL, SECRECIÓN, SANGRADO O FIEBRE. 5. CUIDADO LOCAL DE LA HERIDA Y SEGUIMIENTO PARA RETIRO DE PUNTOS SEGÚN INDICACIÓN DE CIRUGÍA PLÁSTICA. 6. CONTROL POR MEDICINA LABORAL EN 1 MES PARA EVALUAR EVOLUCIÓN CLÍNICA Y REVISAR CONCEPTO DE FISIATRÍA.",
+        },
+    ],
+    "adaptaciones": {
+        "Bastón": "no", "Muletas": "no", "Caminador": "no", "Prótesis": "no",
+        "Audífono": "no", "Gafas": "no", "Bastón guía": "no", "Otros": "no",
+    },
+    "composicion_familiar": {
+        "nucleo": "Esposa y 2 hijos",
+        "integrantes": "Esposa: 29/09/1994 (31 años) / Hija: 24/05/2018 (7 años) / Hija: 11/11/2023 (2 años)",
+        "sostenedor": "El afiliado",
+        "ingreso_promedio": "2.500.000 pesos",
+        "responsabilidad": "Alimentación, arriendo, servicios públicos, gastos personales.",
+        "convivencia": "Esposa y 2 hijos",
+    },
+    "areas_ocupacionales": {
+        "cuidado_personal": {
+            "Lavarse": "NO DIFICULTAD", "Cuidado de partes del cuerpo": "NO DIFICULTAD",
+            "Higiene personal": "NO DIFICULTAD", "Vestirse": "NO DIFICULTAD",
+            "Quitarse la ropa": "NO DIFICULTAD", "Ponerse calzado": "NO DIFICULTAD",
+            "Comer": "NO DIFICULTAD", "Beber": "NO DIFICULTAD",
+            "Cuidado de la propia salud": "NO DIFICULTAD", "Control de la dieta y forma física": "NO DIFICULTAD",
+        },
+        "comunicacion": {
+            "Con recepción de mensajes verbales": "NO DIFICULTAD",
+            "Con recepción de mensajes no verbales": "NO DIFICULTAD",
+            "Con recepción de mensajes en lenguaje de signos": "NO DIFICULTAD",
+            "Con recepción de mensajes escritos": "NO DIFICULTAD",
+            "Habla": "NO DIFICULTAD",
+            "Producción de mensajes no verbales": "NO DIFICULTAD",
+            "Mensajes escritos": "NO DIFICULTAD",
+            "Conversación": "NO DIFICULTAD",
+            "Discusión": "NO DIFICULTAD",
+            "Utilización de dispositivos y técnicas de comunicación": "NO DIFICULTAD",
+        },
+        "movilidad": {
+            "Cambiar las posturas corporales básicas": ("NO DIFICULTAD", ""),
+            "Mantener la posición del cuerpo": ("NO DIFICULTAD", ""),
+            "Levantar y llevar objetos": ("DIFICULTAD LEVE", "Dificultad con objetos pesados"),
+            "Uso fino de la mano": ("DIFICULTAD LEVE", "Dificultad al escribir"),
+            "Uso de la mano y el brazo": ("DIFICULTAD LEVE", "Presenta Dificultad"),
+            "Andar y desplazarse por el entorno": ("NO DIFICULTAD", ""),
+            "Desplazarse por distintos lugares": ("NO DIFICULTAD", ""),
+            "Desplazarse utilizando algún tipo de equipo": ("NO DIFICULTAD", ""),
+            "Utilizar transporte como pasajero": ("NO DIFICULTAD", ""),
+            "Conducir": ("NO DIFICULTAD", ""),
+        },
+        "aprendizaje": {
+            "Mirar": "NO DIFICULTAD", "Escuchar": "NO DIFICULTAD",
+            "Aprender a leer escribir y calcular": "NO DIFICULTAD",
+            "Aprender a calcular": "NO DIFICULTAD",
+            "Pensar": "NO DIFICULTAD", "Leer": "NO DIFICULTAD",
+            "Escribir": "NO DIFICULTAD", "Calcular": "NO DIFICULTAD",
+            "Revolver problemas y tomar decisiones": "NO DIFICULTAD",
+        },
+        "vida_domestica": {
+            "Adquisición de un lugar para vivir": "NO DIFICULTAD",
+            "Adquisición de bienes y servicios": "NO DIFICULTAD",
+            "Comprar": "NO DIFICULTAD",
+            "Preparar comidas": "NO DIFICULTAD",
+            "Realizar quehaceres de la casa": "NO DIFICULTAD",
+            "Limpieza de la vivienda": "NO DIFICULTAD",
+            "Cuidado de los objetos del Hogar": "NO DIFICULTAD",
+            "Ayudar a los demás": "NO DIFICULTAD",
+            "Mantenimiento de dispositivos de ayuda": "NO DIFICULTAD",
+            "Cuidado de los animales": "N/A",
+        },
+    },
+    "concepto_ocupacional": "Afiliado de 35 años, quien ingresa al consultorio caminando por sus propios medios y quien a la valoración del desempeño ocupacional se encontró sin dificultad en los procesos cognitivos de pensamiento lógico y coherente, orientado en tiempo lugar y espacio, quien sufre un AT_02/03/2026, con diagnóstico: S611 HERIDA DEL CUARTO DEDO DE LA MANO DERECHA. S601 CONTUSIÓN DEL CUARTO DEDO DE LA MANO DERECHA. S626 FRACTURA DE LA FALANGE DISTAL DEL CUARTO DEDO DE LA MANO DERECHA.\n\nNúcleo familiar: Esposa y 2 hijos. Menciona que sostiene el hogar con un ingreso promedio de $2.500.000 con responsabilidades económicas de alimentación, servicios públicos, gastos personales. Labora en el cargo de Obrero de tratamiento roca con funciones de: Desatasca las piedras de la máquina trituradora con un gancho de hierro para facilitar que la maquina triture o parta las piedras, luego un montacarga pasa la piedra triturada a un molino para que quede más fina de 30, 40, 60 maya fina, de allí cae a otra tolva y la empaca en bultos de 50 kilos, llena el bultos de piedra fina lo pasa a otro compañero para que cosa el bulto y lo envía a una banda y lo transporta para que ya sea llevado por un carro o a la bodega. Estas tareas se rotan. Sacan entre 40 a 50 toneladas equivalente entre 800 a 1000 bultos, materia prima de fertilizante. Horario de trabajo: 5:00 am a 1:00 pm de lunes a sábados, 1:00 pm a 9:00 pm, disponibilidad para desayunar en el turno de la mañana a las 8:00 am durante 15 minutos y en el turno de la tarde a las 7:00 pm durante 15 minutos para la cena, con disponibilidad para hidratación y para realizar pausas activas. Sensorio - motor: El trabajador menciona que presenta dificultad para el manejo de herramientas, para sostener y realizar agarres con la mano y con el 4 dedo mano derecha, refiere que en las actividades de la vida diaria trata de no utilizar el 4 dedo para evitar dolor. Psicológicos: Refiere que está desmotivado por el dolor piensa que lo van a excluir de sus labores. Social: En lo social refiere no tener dificultad. En lo familiar se ha visto afectado porque el salario se ha disminuido por la incapacidad.",
+    "orientacion_ocupacional": "El afiliado puede realizar actividades laborales, teniendo en cuenta las recomendaciones médico-ocupacionales.",
+    "proveedor": {
+        "nombre": "SANDRA PATRICIA POLANIA OSORIO",
+        "cargo": "Fisioterapeuta Esp. SST",
+        "ips": "REHABILITACION INTEGRAL LABORAL Y OCUPACIONAL SAS",
+    },
+}
+
+if __name__ == "__main__":
+    print("Generando Valoración del Desempeño Ocupacional...")
+    try:
+        path = generar_valoracion_desempeno(datos)
+        print(f"✅ DOCX generado: {path}")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()

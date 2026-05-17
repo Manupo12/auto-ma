@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+
+  backend:
+    build: ./backend
+    container_name: fisio-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/app/storage
+      - ./backend/database.db:/app/database.db
+    environment:
+      - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: fisio-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  browser-use:
+    image: python:3.11-slim
+    container_name: fisio-browser
+    volumes:
+      - ./browser-use:/app/browser-use
+      - ./storage/browser-logs:/logs
+    environment:
+      - MEDIFOLIOS_USER=${MEDIFOLIOS_USER}
+      - MEDIFOLIOS_PASS=${MEDIFOLIOS_PASS}
+      - POSITIVA_USER=${POSITIVA_USER}
+      - POSITIVA_PASS=${POSITIVA_PASS}
+    profiles:
+      - fase2
+    restart: unless-stopped

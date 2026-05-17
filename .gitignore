@@ -1,0 +1,44 @@
+# Secretos y credenciales
+.env
+*.env
+credentials.*
+secrets.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Archivos generados
+storage/output/*.docx
+storage/logs/*.log
+*.tmp
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Base de datos con datos de pacientes
+*.db
+
+# Datos generados y logs
+storage/
+
+# browser-use es un proyecto externo (clonado)
+browser-use/
+
+# Frontend viejo si existe
+frontend/
+
+# Archivos grandes de informe
+*.md

@@ -516,23 +516,71 @@ def _llamar_llm(mensaje: str, paciente_cc: str = "", historial: list = None) -> 
 def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None) -> dict:
     """
     Procesa un mensaje del chat. USA EL LLM REAL con el prompt maestro.
+    También ejecuta ACCIONES REALES: verificar portales, buscar documentos.
     """
     if not mensaje.strip():
         return {"contenido": "¿En qué te ayudo, Sandra? 😊", "accion": None}
     
-    respuesta = _llamar_llm(mensaje, paciente_cc, historial)
-    
-    # Detectar acción sugerida
-    accion = None
     msg_lower = mensaje.lower()
-    if any(p in msg_lower for p in ["completa", "termina", "acaba", "documento", "formato", "punto"]):
-        accion = "documento"
-    elif any(p in msg_lower for p in ["busca", "archivo", "carpeta", "documentos de"]):
-        accion = "buscar"
-    elif any(p in msg_lower for p in ["verifica", "revisa", "comprueba", "siniestro"]):
-        accion = "verificar"
+    
+    # ── DETECTAR INTENCIÓN DE VERIFICACIÓN ──
+    es_verificar = any(p in msg_lower for p in ["verifica", "revisa", "comprueba", "confirma", 
+                                                   "valida", "chequea", "contrasta"])
+    
+    # Extraer CC si se menciona en el mensaje
+    cc_detectada = paciente_cc
+    if not cc_detectada:
+        # Buscar números de cédula: 6-12 dígitos
+        match_cc = re.search(r'\b(\d{6,12})\b', mensaje.replace("'", "").replace(".", "").replace(",", ""))
+        if match_cc:
+            cc_detectada = match_cc.group(1)
+    
+    # ── EJECUTAR VERIFICACIÓN REAL SI SE DETECTA ──
+    datos_verificados = None
+    if es_verificar and cc_detectada:
+        try:
+            from backend.puente_docker import obtener_datos_verificados
+            resultado = obtener_datos_verificados(cc_detectada)
+            if resultado.get("estado") != "pendiente_extraccion":
+                datos_verificados = resultado
+        except ImportError:
+            pass  # puente_docker no disponible aún, solo seguir con LLM
+    
+    # ── LLAMAR AL LLM CON CONTEXTO ENRIQUECIDO ──
+    if datos_verificados:
+        # Inyectar datos verificados en el contexto
+        contexto_extra = "\n\n📊 DATOS VERIFICADOS DE PORTALES:\n"
+        for campo, info in datos_verificados.get("campos_verificados", {}).items():
+            estado = info.get("estado", "?")
+            valor = info.get("valor", "")
+            if valor:
+                contexto_extra += f"{estado} {campo}: {valor}\n"
+        
+        mensaje_enriquecido = mensaje + contexto_extra + "\n\nUsa estos datos verificados para completar lo que Sandra te pide. Los datos con ✅ están confirmados en los portales."
+        respuesta = _llamar_llm(mensaje_enriquecido, cc_detectada, historial)
+        accion = "verificado"
+    else:
+        respuesta = _llamar_llm(mensaje, cc_detectada, historial)
+        
+        # Detectar acción
+        accion = None
+        if any(p in msg_lower for p in ["completa", "termina", "acaba", "documento", "formato", "punto"]):
+            accion = "documento"
+        elif any(p in msg_lower for p in ["busca", "archivo", "carpeta", "documentos de"]):
+            accion = "buscar"
+        elif es_verificar:
+            accion = "verificar_pendiente"
+            if cc_detectada:
+                respuesta += (
+                    f"\n\n---\n🔍 Para verificar a este paciente (CC {cc_detectada}), "
+                    f"dile a Sandra que use el botón 'Verificar en Portales' o que espere "
+                    f"mientras el sistema consulta Medifolios y ARL Positiva.\n"
+                    f"La verificación tarda 2-5 minutos."
+                )
     
     return {
         "contenido": respuesta,
         "accion": accion,
+        "datos_verificados": datos_verificados,
+        "cc_detectada": cc_detectada,
     }

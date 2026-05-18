@@ -404,7 +404,16 @@ def _llamar_llm(mensaje: str, paciente_cc: str = "", historial: list = None) -> 
     
     # 1. Contenido del archivo que Sandra mencionó (LO MÁS IMPORTANTE)
     if contenido_archivo:
-        user_msg += f"\n\n---\n📂 HE ENCONTRADO ESTE ARCHIVO EN TU CARPETA:\n{contenido_archivo}\n---\n\nBasado en este documento, ¿qué necesitas que haga?"
+        user_msg += (
+            f"\n\n---\n📂 HE ENCONTRADO ESTE ARCHIVO EN TU CARPETA:\n{contenido_archivo}"
+            f"\n---\n"
+            f"\n⚠️ INSTRUCCIÓN IMPORTANTE: NO me leas el documento de vuelta. "
+            f"Ya sé lo que contiene. Lo que necesito es que COMPLETES las secciones "
+            f"que faltan. Si Sandra dijo 'hice hasta el punto 4', entonces completa "
+            f"los puntos 5 en adelante. Si hay campos vacíos, llénalos con los datos "
+            f"que tienes del paciente. Si no tienes algún dato, indícale a Sandra "
+            f"qué información necesitas. Sé CONCISO y ve directo a completar, no a describir."
+        )
     
     # 2. Contexto del workspace
     if WORKSPACE_CONTEXT:
@@ -427,7 +436,7 @@ def _llamar_llm(mensaje: str, paciente_cc: str = "", historial: list = None) -> 
                 "model": MODEL,
                 "messages": messages,
                 "temperature": 0.7,
-                "max_tokens": 700,
+                "max_tokens": 2000,  # Suficiente para analizar documentos largos
             },
             timeout=30,
         )

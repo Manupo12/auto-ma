@@ -38,7 +38,11 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mensaje, paciente_cc: undefined }),
+        body: JSON.stringify({ 
+          mensaje, 
+          paciente_cc: undefined,
+          historial: mensajes.slice(-10), // Últimos 10 mensajes para contexto
+        }),
       });
 
       let respuesta: string;

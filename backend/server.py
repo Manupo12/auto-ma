@@ -61,6 +61,7 @@ for d in [DOCS_DIR, PDFS_DIR, DATA_DIR, AUDIO_DIR]:
 class ChatRequest(BaseModel):
     mensaje: str
     paciente_cc: Optional[str] = None
+    historial: Optional[List[dict]] = None  # Conversación previa
 
 
 class GenerarRequest(BaseModel):
@@ -196,12 +197,12 @@ def descargar_archivo(filename: str):
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
     """
-    Chat con Tomy — Motor inteligente de conversación.
-    Procesa lenguaje natural: buscar documentos, completar formatos, verificar datos.
+    Chat con Tomy — Motor IA REAL (DeepSeek v4).
+    Misma conciencia que Telegram y CLI. Especialista absoluto en RILO SAS.
     """
     try:
         from backend.chat_handler import procesar_mensaje
-        resultado = procesar_mensaje(req.mensaje, req.paciente_cc)
+        resultado = procesar_mensaje(req.mensaje, req.paciente_cc, req.historial)
         return {
             "ok": True,
             "contenido": resultado["contenido"],

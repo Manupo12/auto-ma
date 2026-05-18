@@ -23,6 +23,14 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+# Cargar variables de entorno desde .env
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("⚠️  python-dotenv no instalado. Las variables de .env no se cargarán.")
+    print("   pip install python-dotenv")
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse

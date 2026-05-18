@@ -228,8 +228,128 @@ Sandra confía en ti. No la decepciones. Sé claro, paciente y efectivo."""
 WORKSPACE_CONTEXT = ""
 
 
-def _actualizar_contexto_workspace() -> List[str]:
-    """Actualiza contexto con archivos del workspace. Retorna lista de archivos."""
+def _buscar_archivo_mencionado(mensaje: str) -> Optional[Path]:
+    """
+    Busca si Sandra mencionó un archivo específico en su mensaje.
+    Retorna la ruta si lo encuentra, None si no.
+    """
+    if not WORKSPACE_DIR.exists():
+        return None
+    
+    # Palabras clave que indican mención de archivo
+    triggers = ["formato", "documento", "archivo", "el archivo", "el documento", 
+                "arregla", "completa", "termina", "revisa", "mira", "abre",
+                "analisis", "análisis", "carta", "cierre", "citacion", "citación",
+                "prueba", "valoracion", "valoración", "desempeño", "exigencias",
+                "recomendaciones", "medidas", "trabajo"]
+    
+    # Si no hay triggers, no buscar
+    if not any(t in mensaje.lower() for t in triggers):
+        return None
+    
+    # Buscar todos los archivos .docx y .txt en el workspace
+    todos_archivos = []
+    for f in WORKSPACE_DIR.rglob("*"):
+        if f.is_file() and f.suffix.lower() in ['.docx', '.txt']:
+            todos_archivos.append(f)
+    
+    if not todos_archivos:
+        return None
+    
+    # Buscar coincidencia por nombre
+    mensaje_lower = mensaje.lower()
+    
+    # Estrategia 1: coincidencia exacta de nombre de archivo (sin extensión)
+    for archivo in todos_archivos:
+        nombre_sin_ext = archivo.stem.lower()
+        if nombre_sin_ext in mensaje_lower:
+            return archivo
+    
+    # Estrategia 2: coincidencia parcial (nombre del paciente + tipo de formato)
+    for archivo in todos_archivos:
+        nombre_partes = archivo.stem.lower().replace('_', ' ').replace('-', ' ').split()
+        coincidencias = sum(1 for p in nombre_partes if len(p) > 3 and p in mensaje_lower)
+        if coincidencias >= 2:
+            return archivo
+    
+    # Estrategia 3: si Sandra menciona tipo de formato, buscar el más reciente que coincida
+    tipos_formato = {
+        "analisis": "analisis", "análisis": "analisis", "exigencias": "exigencias",
+        "carta de medidas": "medidas", "medidas": "medidas",
+        "carta de recomendaciones": "recomendaciones", "recomendaciones": "recomendaciones",
+        "cierre de caso": "cierre", "cierre": "cierre",
+        "citacion": "citacion", "citación": "citacion", "empresas": "citacion",
+        "prueba de trabajo": "prueba", "prueba": "prueba",
+        "valoracion": "valoracion", "valoración": "valoracion", "desempeño": "valoracion", "desempeno": "valoracion",
+    }
+    
+    for keyword, tipo in tipos_formato.items():
+        if keyword in mensaje_lower:
+            # Buscar archivos que contengan ese tipo
+            candidatos = [a for a in todos_archivos if tipo in a.stem.lower()]
+            if candidatos:
+                # El más reciente
+                return max(candidatos, key=lambda p: p.stat().st_mtime)
+    
+    return None
+
+
+def _leer_documento_para_contexto(ruta: Path) -> str:
+    """
+    Lee un .docx o .txt y extrae el contenido para dárselo al LLM como contexto.
+    Retorna string con el contenido resumido.
+    """
+    if ruta.suffix.lower() == '.txt':
+        try:
+            contenido = ruta.read_text(encoding='utf-8', errors='ignore')
+            return f"CONTENIDO DEL ARCHIVO '{ruta.name}':\n{contenido[:3000]}"
+        except:
+            return ""
+    
+    elif ruta.suffix.lower() == '.docx':
+        try:
+            from docx import Document
+            doc = Document(str(ruta))
+            
+            lineas = [f"📄 ARCHIVO: {ruta.name}"]
+            lineas.append(f"   📊 {len(doc.paragraphs)} párrafos, {len(doc.tables)} tablas\n")
+            
+            # Extraer párrafos con su estado
+            for i, p in enumerate(doc.paragraphs[:50]):  # Máximo 50 párrafos
+                texto = p.text.strip()
+                if not texto:
+                    continue
+                    
+                estilo = p.style.name if p.style else ""
+                
+                # Detectar encabezados numerados
+                if re.match(r'^\d+[\.\)]\s', texto) or 'Heading' in estilo:
+                    lineas.append(f"\n🔹 {texto}")
+                elif len(texto) < 80 and (texto.isupper() or 'Heading' in estilo):
+                    lineas.append(f"\n📌 {texto}")
+                else:
+                    # Truncar párrafos largos
+                    if len(texto) > 300:
+                        texto = texto[:300] + "..."
+                    lineas.append(f"   {texto}")
+            
+            # Info de tablas
+            for t_idx, tabla in enumerate(doc.tables[:5]):
+                lineas.append(f"\n📋 TABLA {t_idx+1} ({len(tabla.rows)} filas × {len(tabla.columns)} columnas):")
+                for f_idx, fila in enumerate(tabla.rows[:10]):
+                    celdas = [celda.text.strip()[:80] for celda in fila.cells]
+                    lineas.append(f"   Fila {f_idx+1}: {' | '.join(celdas)}")
+            
+            return "\n".join(lineas)[:4000]  # Limitar para no exceder contexto
+            
+        except Exception as e:
+            return f"⚠️ No se pudo leer {ruta.name}: {e}"
+    
+    return ""
+
+
+def _actualizar_contexto_workspace() -> str:
+    """Actualiza contexto con archivos del workspace."""
     global WORKSPACE_CONTEXT
     try:
         if WORKSPACE_DIR.exists():
@@ -242,12 +362,12 @@ def _actualizar_contexto_workspace() -> List[str]:
                         lineas.append(f"📁 {item.name}/: {', '.join(docs[:5])}")
                 elif item.is_file() and not item.name.startswith('.'):
                     lineas.append(f"📄 {item.name}")
-            WORKSPACE_CONTEXT = "\n".join(lineas[:20]) if lineas else "Carpeta de trabajo vacía o no configurada."
+            WORKSPACE_CONTEXT = "\n".join(lineas[:20]) if lineas else "(carpeta vacía)"
         else:
-            WORKSPACE_CONTEXT = "Carpeta de trabajo no encontrada."
+            WORKSPACE_CONTEXT = "(carpeta no encontrada)"
     except Exception as e:
-        WORKSPACE_CONTEXT = f"No se pudo leer la carpeta: {e}"
-    return WORKSPACE_CONTEXT.split("\n")
+        WORKSPACE_CONTEXT = f"(error: {e})"
+    return WORKSPACE_CONTEXT
 
 
 def _llamar_llm(mensaje: str, paciente_cc: str = "", historial: list = None) -> str:
@@ -262,6 +382,12 @@ def _llamar_llm(mensaje: str, paciente_cc: str = "", historial: list = None) -> 
     
     _actualizar_contexto_workspace()
     
+    # 🔍 BUSCAR ARCHIVO MENCIONADO por Sandra
+    archivo_encontrado = _buscar_archivo_mencionado(mensaje)
+    contenido_archivo = ""
+    if archivo_encontrado:
+        contenido_archivo = _leer_documento_para_contexto(archivo_encontrado)
+    
     # Construir mensajes
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     
@@ -273,12 +399,20 @@ def _llamar_llm(mensaje: str, paciente_cc: str = "", historial: list = None) -> 
             if content:
                 messages.append({"role": role, "content": content})
     
-    # Construir mensaje del usuario con contexto
+    # Construir mensaje del usuario con TODO el contexto
     user_msg = mensaje
+    
+    # 1. Contenido del archivo que Sandra mencionó (LO MÁS IMPORTANTE)
+    if contenido_archivo:
+        user_msg += f"\n\n---\n📂 HE ENCONTRADO ESTE ARCHIVO EN TU CARPETA:\n{contenido_archivo}\n---\n\nBasado en este documento, ¿qué necesitas que haga?"
+    
+    # 2. Contexto del workspace
     if WORKSPACE_CONTEXT:
-        user_msg += f"\n\n[Tu carpeta de trabajo actual contiene:\n{WORKSPACE_CONTEXT}]"
+        user_msg += f"\n\n[Tu carpeta de trabajo: {WORKSPACE_CONTEXT}]"
+    
+    # 3. CC del paciente
     if paciente_cc:
-        user_msg += f"\n\n[CC del paciente que está consultando: {paciente_cc}]"
+        user_msg += f"\n\n[CC del paciente: {paciente_cc}]"
     
     messages.append({"role": "user", "content": user_msg})
     

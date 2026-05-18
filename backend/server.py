@@ -21,7 +21,7 @@ import glob
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 # Cargar variables de entorno desde .env
 try:

@@ -494,3 +494,62 @@ def buscar_paciente_agenda(q: Optional[str] = None):
         return {"ok": True, "pacientes": citas[:20]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Verificación de portales ──────────────────────────────────────
+
+@app.get("/api/verificar/{cc}")
+def verificar_paciente(cc: str):
+    """
+    Verifica los datos de un paciente contra los portales.
+    Si ya hay datos extraídos, los retorna. Si no, los extrae AHORA.
+    """
+    try:
+        from backend.puente_docker import obtener_datos_verificados, extraer_desde_wsl
+        
+        # Primero buscar si ya hay datos
+        datos = obtener_datos_verificados(cc)
+        
+        if datos.get("estado") == "pendiente_extraccion":
+            return {
+                "ok": True,
+                "estado": "pendiente",
+                "mensaje": f"CC {cc} — Se necesita extraer datos de los portales.",
+                "sugerencia": "Usa POST /api/verificar/{cc}/extraer para iniciar la extracción."
+            }
+        
+        return datos
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/verificar/{cc}/extraer")
+def extraer_paciente(cc: str):
+    """
+    DISPARA la extracción de portales para un paciente.
+    Navega Medifolios + ARL Positiva y extrae todos los datos.
+    Tarda 2-5 minutos.
+    """
+    try:
+        from backend.puente_docker import extraer_desde_wsl
+        
+        resultado = extraer_desde_wsl(cc)
+        
+        if resultado.get("ok"):
+            return {
+                "ok": True,
+                "estado": resultado.get("estado"),
+                "datos": resultado.get("datos", {}),
+                "mensaje": f"✅ Datos de CC {cc} verificados contra portales.",
+            }
+        else:
+            return {
+                "ok": False,
+                "estado": resultado.get("estado", "error"),
+                "error": resultado.get("error", ""),
+                "log": resultado.get("log", ""),
+            }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

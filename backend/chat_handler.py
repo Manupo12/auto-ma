@@ -499,7 +499,7 @@ def _llamar_llm(mensaje: str, paciente_cc: str = "", historial: list = None) -> 
                 "temperature": 0.7,
                 "max_tokens": 2000,  # Suficiente para analizar documentos largos
             },
-            timeout=30,
+            timeout=90,  # Prompt grande + documento = necesita más tiempo
         )
         
         if resp.status_code == 200:
@@ -508,7 +508,7 @@ def _llamar_llm(mensaje: str, paciente_cc: str = "", historial: list = None) -> 
             return f"🤔 Lo siento Sandra, tuve un problema momentáneo. ¿Puedes intentar de nuevo?"
             
     except requests.exceptions.Timeout:
-        return "⏰ Me demoré mucho pensando. ¿Me resumes tu pregunta en una frase corta?"
+        return "⏰ Estoy procesando mucha información. ¿Puedes ser más específica?"
     except Exception:
         return "❌ Algo falló en mi conexión. Intenta de nuevo en un momento."
 

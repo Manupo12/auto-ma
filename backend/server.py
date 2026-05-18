@@ -359,3 +359,147 @@ def corregir_formato(cc: str, fmt: str, req: CorregirRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.server:app", host="0.0.0.0", port=8000, reload=True)
+
+
+# ── Nuevos endpoints: Agenda, Archivos, Notificaciones ──────────────────
+
+WORKSPACE_DIR = Path(os.getenv("WORKSPACE_DIR", Path.home() / "rilo-workspace"))
+
+
+@app.get("/api/agenda")
+def get_agenda():
+    """Obtener la agenda actual guardada (para el dashboard)."""
+    try:
+        from backend.notificador import api_get_agenda
+        agenda = api_get_agenda()
+        if agenda:
+            return {"ok": True, **agenda}
+        return {"ok": True, "citas": [], "mensaje": "No hay agenda guardada aún"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/agenda/check")
+def check_agenda_ahora():
+    """Forzar revisión de agenda YA (8:30 PM automático, esto es manual)."""
+    try:
+        from backend.notificador import api_check_ahora
+        resultado = api_check_ahora()
+        return {"ok": True, **resultado}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/archivos")
+def listar_archivos(path: Optional[str] = None):
+    """
+    Listar archivos de la carpeta de trabajo de Sandra.
+    Si path es None, lista la raíz del workspace.
+    """
+    try:
+        base = WORKSPACE_DIR if path is None else WORKSPACE_DIR / path
+        
+        # Seguridad: evitar salir del workspace
+        base = base.resolve()
+        if not str(base).startswith(str(WORKSPACE_DIR.resolve())):
+            raise HTTPException(status_code=403, detail="Acceso denegado")
+        
+        if not base.exists():
+            return {"ok": True, "archivos": [], "path": str(path or "")}
+        
+        archivos = []
+        for item in sorted(base.iterdir()):
+            if item.name.startswith(".") or item.name.startswith("__"):
+                continue
+            
+            info = {
+                "nombre": item.name,
+                "tipo": "carpeta" if item.is_dir() else "archivo",
+                "tamano": item.stat().st_size if item.is_file() else 0,
+                "modificado": datetime.fromtimestamp(item.stat().st_mtime).isoformat(),
+            }
+            
+            # Detectar tipo de archivo
+            if item.is_file():
+                ext = item.suffix.lower()
+                if ext == ".docx":
+                    info["icono"] = "📄"
+                elif ext == ".txt":
+                    info["icono"] = "📝"
+                elif ext == ".json":
+                    info["icono"] = "📊"
+                elif ext in [".mp3", ".wav", ".m4a"]:
+                    info["icono"] = "🎙️"
+                else:
+                    info["icono"] = "📎"
+            else:
+                # Detectar si es carpeta de paciente (tiene archivos dentro)
+                info["icono"] = "📁"
+                info["contenido"] = sum(1 for _ in item.rglob("*") if _.is_file())
+            
+            archivos.append(info)
+        
+        return {"ok": True, "path": str(path or ""), "archivos": archivos}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/archivos/sync")
+def sync_workspace():
+    """Sincronizar carpeta de trabajo con git (pull + push)."""
+    import subprocess
+    try:
+        # git pull
+        pull = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            cwd=str(WORKSPACE_DIR),
+            capture_output=True, text=True, timeout=30
+        )
+        # git add -A && git commit && git push
+        add = subprocess.run(
+            ["git", "add", "-A"],
+            cwd=str(WORKSPACE_DIR),
+            capture_output=True, text=True, timeout=10
+        )
+        commit = subprocess.run(
+            ["git", "commit", "-m", f"💾 Auto-sync {datetime.now().strftime('%Y-%m-%d %H:%M')}"],
+            cwd=str(WORKSPACE_DIR),
+            capture_output=True, text=True, timeout=10
+        )
+        push = subprocess.run(
+            ["git", "push", "origin", "main"],
+            cwd=str(WORKSPACE_DIR),
+            capture_output=True, text=True, timeout=30
+        )
+        
+        return {
+            "ok": True,
+            "pull": pull.stdout.strip(),
+            "push": push.stdout.strip(),
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/pacientes/buscar")
+def buscar_paciente_agenda(q: Optional[str] = None):
+    """
+    Buscar paciente en la agenda actual.
+    Útil para cuando Sandra atiende a alguien y quiere ver sus datos rápido.
+    """
+    try:
+        from backend.notificador import api_get_agenda
+        agenda = api_get_agenda()
+        if not agenda or not agenda.get("citas"):
+            return {"ok": True, "pacientes": []}
+        
+        citas = agenda["citas"]
+        if q:
+            q_lower = q.lower()
+            citas = [c for c in citas if q_lower in c["paciente"].lower()]
+        
+        return {"ok": True, "pacientes": citas[:20]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

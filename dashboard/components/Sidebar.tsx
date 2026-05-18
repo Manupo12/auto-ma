@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, FileText, MessageCircle,
-  Upload, Settings, Activity, Stethoscope
+  Upload, Settings, Activity, Stethoscope, FolderOpen
 } from "lucide-react";
 import clsx from "clsx";
 
@@ -13,6 +13,7 @@ const menuItems = [
   { href: "/pacientes", label: "Pacientes", icon: Users },
   { href: "/formatos", label: "Formatos", icon: FileText },
   { href: "/chat", label: "Chat con Tomy", icon: MessageCircle },
+  { href: "/archivos", label: "Archivos", icon: FolderOpen },
   { href: "/subir-audio", label: "Subir Audio", icon: Upload },
 ];
 

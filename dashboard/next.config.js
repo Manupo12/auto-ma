@@ -11,6 +11,14 @@ const nextConfig = {
       },
     ];
   },
+
+  // Aumentar límite de subida para audios (50 MB)
+  // Las notas de voz del iPhone pueden pesar bastante
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
+  },
 };
 
 module.exports = nextConfig;

@@ -42,10 +42,20 @@ export default function SubirAudioPage() {
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && (file.type.startsWith("audio/") || file.name.endsWith(".m4a"))) {
+    if (!file) return;
+    
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const tiposPermitidos = ['audio/', 'm4a', 'mp3', 'wav', 'mp4', 'aac', 'ogg', 'flac', 'webm', 'm4b'];
+    const esAudio = file.type.startsWith('audio/') || file.type.startsWith('video/') || 
+                    tiposPermitidos.some(t => file.name.toLowerCase().endsWith('.' + t)) ||
+                    tiposPermitidos.some(t => ext === t);
+    
+    if (esAudio) {
       setArchivo(file);
       setCompletado(false);
       setError("");
+    } else {
+      setError(`Formato no soportado: .${ext}. Usa M4A, MP3, WAV o graba con el iPhone (Notas de Voz).`);
     }
   };
 
@@ -59,7 +69,7 @@ export default function SubirAudioPage() {
       formData.append("audio", archivo);
       formData.append("paciente_cc", cc.trim());
 
-      const res = await fetch("/api/upload-audio", {
+      const res = await fetch("http://localhost:8000/api/upload-audio", {
         method: "POST",
         body: formData,
       });

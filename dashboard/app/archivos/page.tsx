@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Sidebar from "@/components/Sidebar";
-import MobileMenu from "@/components/MobileMenu";
+import {
+  Folder, FileText, File, RefreshCw, Calendar, Loader2,
+  ChevronLeft, AlertCircle, CheckCircle, Clock, ArrowRight,
+} from "lucide-react";
 
 interface ArchivoItem {
   nombre: string;
@@ -13,12 +15,25 @@ interface ArchivoItem {
   contenido?: number;
 }
 
+interface Cita {
+  hora: string;
+  paciente: string;
+  es_nueva?: boolean;
+}
+
+interface AgendaData {
+  fecha: string;
+  total: number;
+  citas: Cita[];
+}
+
 export default function ArchivosPage() {
   const [archivos, setArchivos] = useState<ArchivoItem[]>([]);
   const [path, setPath] = useState("");
-  const [agenda, setAgenda] = useState<any>(null);
+  const [agenda, setAgenda] = useState<AgendaData | null>(null);
   const [cargando, setCargando] = useState(true);
   const [syncMsg, setSyncMsg] = useState("");
+  const [syncOk, setSyncOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     cargarArchivos();
@@ -26,10 +41,11 @@ export default function ArchivosPage() {
   }, []);
 
   const cargarArchivos = async (subpath?: string) => {
+    setCargando(true);
     try {
       const url = subpath
-        ? `http://localhost:8000/api/archivos?path=${encodeURIComponent(subpath)}`
-        : "http://localhost:8000/api/archivos";
+        ? `/api/archivos?path=${encodeURIComponent(subpath)}`
+        : "/api/archivos";
       const resp = await fetch(url);
       const data = await resp.json();
       if (data.ok) {
@@ -38,60 +54,62 @@ export default function ArchivosPage() {
       }
     } catch (e) {
       console.error("Error cargando archivos:", e);
+    } finally {
+      setCargando(false);
     }
-    setCargando(false);
   };
 
   const cargarAgenda = async () => {
     try {
-      const resp = await fetch("http://localhost:8000/api/agenda");
+      const resp = await fetch("/api/agenda");
       const data = await resp.json();
       if (data.ok && data.citas?.length > 0) {
-        setAgenda(data);
+        setAgenda(data as AgendaData);
       }
-    } catch (e) {
-      // Silencioso si no hay agenda
+    } catch {
+      // silencioso
     }
+  };
+
+  const mostrarMensaje = (msg: string, ok: boolean) => {
+    setSyncMsg(msg);
+    setSyncOk(ok);
+    setTimeout(() => { setSyncMsg(""); setSyncOk(null); }, 5000);
   };
 
   const forzarSync = async () => {
-    setSyncMsg("⏳ Sincronizando...");
+    mostrarMensaje("Sincronizando...", true);
     try {
-      const resp = await fetch("http://localhost:8000/api/archivos/sync", {
-        method: "POST",
-      });
+      const resp = await fetch("/api/archivos/sync", { method: "POST" });
       const data = await resp.json();
       if (data.ok) {
-        setSyncMsg("✅ Sincronizado con GitHub");
-        cargarArchivos();
+        mostrarMensaje("Sincronizado con GitHub", true);
+        cargarArchivos(path || undefined);
       } else {
-        setSyncMsg("❌ " + (data.error || "Error"));
+        mostrarMensaje(data.error || "Error al sincronizar", false);
       }
-    } catch (e) {
-      setSyncMsg("❌ Error de conexión");
+    } catch {
+      mostrarMensaje("Error de conexión", false);
     }
-    setTimeout(() => setSyncMsg(""), 5000);
   };
 
   const forzarCheckAgenda = async () => {
-    setSyncMsg("⏳ Revisando agenda...");
+    mostrarMensaje("Revisando agenda...", true);
     try {
-      const resp = await fetch("http://localhost:8000/api/agenda/check", {
-        method: "POST",
-      });
+      const resp = await fetch("/api/agenda/check", { method: "POST" });
       const data = await resp.json();
       if (data.ok) {
-        setSyncMsg(
-          `✅ ${data.total || 0} citas encontradas para ${data.fecha || "mañana"}`
+        mostrarMensaje(
+          `${data.total || 0} citas encontradas para ${data.fecha || "mañana"}`,
+          true
         );
         cargarAgenda();
       } else {
-        setSyncMsg("❌ " + (data.mensaje || "Error"));
+        mostrarMensaje(data.mensaje || "Error al revisar agenda", false);
       }
-    } catch (e) {
-      setSyncMsg("❌ Error de conexión");
+    } catch {
+      mostrarMensaje("Error de conexión", false);
     }
-    setTimeout(() => setSyncMsg(""), 5000);
   };
 
   const abrirCarpeta = (nombre: string) => {
@@ -108,15 +126,14 @@ export default function ArchivosPage() {
   };
 
   const formatearTamano = (bytes: number) => {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const formatearFecha = (fecha: string) => {
     try {
-      const d = new Date(fecha);
-      return d.toLocaleString("es-CO", {
+      return new Date(fecha).toLocaleString("es-CO", {
         day: "2-digit",
         month: "short",
         hour: "2-digit",
@@ -127,144 +144,135 @@ export default function ArchivosPage() {
     }
   };
 
+  const iconoArchivo = (item: ArchivoItem) => {
+    if (item.tipo === "carpeta") return <Folder size={20} className="text-amber-500 flex-shrink-0" />;
+    if (item.nombre.endsWith(".docx") || item.nombre.endsWith(".doc"))
+      return <FileText size={20} className="text-blue-500 flex-shrink-0" />;
+    return <File size={20} className="text-slate-400 flex-shrink-0" />;
+  };
+
   return (
-    <div className="min-h-screen bg-[#0a0a1a] text-white font-mono">
-      <Sidebar />
-      <MobileMenu />
-      <div className="lg:ml-64 p-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-purple-400">
-              📁 Archivos de Trabajo
-            </h1>
-            <p className="text-gray-500 text-sm mt-1">
-              {path ? (
-                <span
-                  className="cursor-pointer hover:text-purple-400"
-                  onClick={volver}
-                >
-                  ← {path}
-                </span>
-              ) : (
-                "Carpeta principal de Sandra"
-              )}
-            </p>
+    <div className="space-y-6 animate-fadeIn">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Archivos de Trabajo</h1>
+          <p className="text-slate-500 mt-1">
+            Carpeta de trabajo de Sandra · Documentos y expedientes
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={forzarCheckAgenda}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
+          >
+            <Calendar size={16} />
+            Revisar Agenda
+          </button>
+          <button
+            onClick={forzarSync}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm font-medium transition-colors"
+          >
+            <RefreshCw size={16} />
+            Sincronizar
+          </button>
+        </div>
+      </div>
+
+      {syncMsg && (
+        <div className={`p-3 rounded-xl text-sm flex items-center gap-2 border ${
+          syncOk === false
+            ? "bg-red-50 border-red-200 text-red-800"
+            : "bg-green-50 border-green-200 text-green-800"
+        }`}>
+          {syncOk === false ? <AlertCircle size={16} /> : <CheckCircle size={16} />}
+          {syncMsg}
+        </div>
+      )}
+
+      {agenda && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Calendar size={16} className="text-blue-600" />
+            <span className="font-semibold text-blue-800 text-sm">
+              Agenda: {agenda.fecha}
+            </span>
+            <span className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded-full">
+              {agenda.total} citas
+            </span>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={forzarCheckAgenda}
-              className="px-4 py-2 bg-blue-600/20 border border-blue-500/30 rounded-lg 
-                         text-blue-400 text-sm hover:bg-blue-600/30 transition-all"
-            >
-              📅 Revisar Agenda
-            </button>
-            <button
-              onClick={forzarSync}
-              className="px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-lg 
-                         text-purple-400 text-sm hover:bg-purple-600/30 transition-all"
-            >
-              🔄 Sincronizar
-            </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {agenda.citas?.slice(0, 6).map((c, i) => (
+              <div key={i} className="flex items-center gap-2 text-xs text-blue-700 bg-white/70 px-2 py-1.5 rounded-lg">
+                {c.es_nueva && (
+                  <span className="text-green-700 font-bold text-[10px] bg-green-100 px-1 rounded">
+                    NUEVO
+                  </span>
+                )}
+                <Clock size={11} className="flex-shrink-0" />
+                <span>{c.hora} — {c.paciente}</span>
+              </div>
+            ))}
           </div>
         </div>
+      )}
 
-        {/* Sync status */}
-        {syncMsg && (
-          <div className="mb-4 px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-lg text-sm text-gray-300">
-            {syncMsg}
-          </div>
-        )}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="p-4 bg-slate-50 border-b flex items-center gap-2">
+          {path ? (
+            <button
+              onClick={volver}
+              className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-600 transition-colors"
+            >
+              <ChevronLeft size={16} />
+              <span className="font-mono text-xs">{path}</span>
+            </button>
+          ) : (
+            <span className="text-sm text-slate-600 font-medium">Carpeta raíz</span>
+          )}
+          {cargando && <Loader2 size={14} className="animate-spin text-slate-400 ml-auto" />}
+        </div>
 
-        {/* Agenda info */}
-        {agenda && (
-          <div className="mb-6 p-4 bg-blue-900/20 border border-blue-800/30 rounded-lg">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-lg">📅</span>
-              <span className="font-semibold text-blue-300">
-                Próxima Agenda: {agenda.fecha}
-              </span>
-              <span className="bg-blue-600/30 text-blue-300 text-xs px-2 py-0.5 rounded-full">
-                {agenda.total} citas
-              </span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {agenda.citas?.slice(0, 6).map((c: any, i: number) => (
-                <div
-                  key={i}
-                  className="text-xs text-gray-400 bg-gray-900/30 px-2 py-1 rounded flex items-center gap-2"
-                >
-                  {c.es_nueva && (
-                    <span className="text-green-400 font-bold text-[10px] bg-green-900/50 px-1 rounded">
-                      NUEVO
-                    </span>
-                  )}
-                  ⏰ {c.hora} — {c.paciente}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Archivos */}
         {cargando ? (
-          <div className="text-center py-12 text-gray-500">
-            <span className="animate-pulse">Cargando archivos...</span>
+          <div className="py-16 text-center text-slate-400 text-sm">
+            <Loader2 size={24} className="animate-spin mx-auto mb-3" />
+            Cargando archivos...
           </div>
         ) : archivos.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <p className="text-4xl mb-3">📭</p>
-            <p>
-              No hay archivos aquí.
-              {!path && " La carpeta de trabajo aún no se ha configurado."}
-            </p>
+          <div className="py-16 text-center text-slate-400 text-sm space-y-2">
+            <Folder size={40} className="mx-auto text-slate-300" />
+            <p>No hay archivos aquí.</p>
             {!path && (
-              <p className="text-sm mt-2 text-gray-600">
-                Configura WORKSPACE_DIR en .env o crea ~/rilo-workspace
+              <p className="text-xs text-slate-400">
+                Configura <code className="bg-slate-100 px-1 rounded">WORKSPACE_DIR</code> en .env
+                o crea <code className="bg-slate-100 px-1 rounded">~/rilo-workspace</code>
               </p>
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {path && (
-              <button
-                onClick={volver}
-                className="p-4 bg-gray-800/30 border border-gray-700/30 rounded-lg 
-                           hover:bg-gray-800/50 transition-all text-left flex items-center gap-3"
-              >
-                <span className="text-2xl">⬆️</span>
-                <span className="text-gray-400 text-sm">Volver atrás</span>
-              </button>
-            )}
+          <div className="divide-y divide-slate-100">
             {archivos.map((item, i) => (
-              <button
+              <div
                 key={i}
-                onClick={() =>
-                  item.tipo === "carpeta" ? abrirCarpeta(item.nombre) : null
-                }
-                className={`p-4 rounded-lg border transition-all text-left
-                  ${
-                    item.tipo === "carpeta"
-                      ? "bg-gray-800/20 border-yellow-700/20 hover:bg-gray-800/40 hover:border-yellow-600/40 cursor-pointer"
-                      : "bg-gray-800/10 border-gray-700/10 cursor-default"
-                  }`}
+                onClick={() => item.tipo === "carpeta" ? abrirCarpeta(item.nombre) : undefined}
+                className={`flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors ${
+                  item.tipo === "carpeta" ? "cursor-pointer" : "cursor-default"
+                }`}
               >
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{item.icono}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-gray-200 truncate font-medium">
-                      {item.nombre}
-                    </p>
-                    <p className="text-[10px] text-gray-600">
-                      {item.tipo === "carpeta"
-                        ? `${item.contenido || 0} archivos`
-                        : formatearTamano(item.tamano)}
-                      {" · "}
-                      {formatearFecha(item.modificado)}
-                    </p>
-                  </div>
+                {iconoArchivo(item)}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-700 truncate">{item.nombre}</p>
+                  <p className="text-xs text-slate-400">
+                    {item.tipo === "carpeta"
+                      ? `${item.contenido ?? 0} archivos`
+                      : formatearTamano(item.tamano)}
+                    {" · "}
+                    {formatearFecha(item.modificado)}
+                  </p>
                 </div>
-              </button>
+                {item.tipo === "carpeta" && (
+                  <ArrowRight size={14} className="text-slate-300 flex-shrink-0" />
+                )}
+              </div>
             ))}
           </div>
         )}

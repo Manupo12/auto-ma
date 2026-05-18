@@ -64,20 +64,18 @@ def _cache_workspace():
         for item in WORKSPACE_DIR.iterdir():
             if item.name.startswith('.'): continue
             if item.is_dir():
-                # Solo 2 niveles de profundidad para velocidad
-                docs = []
-                try:
-                    for sub in item.iterdir():
-                        if sub.is_file() and sub.suffix.lower() in ['.docx', '.txt']:
-                            docs.append(sub.name)
-                        elif sub.is_dir() and not sub.name.startswith('.'):
-                            for sub2 in sub.iterdir():
-                                if sub2.is_file() and sub2.suffix.lower() in ['.docx', '.txt']:
-                                    docs.append(sub2.name)
-                except PermissionError: pass
-                if docs:
-                    dirs_info[item.name] = docs
-                todos.extend([item / d for d in docs])
+                docs_nombres = []
+                for sub in item.iterdir():
+                    if sub.is_file() and sub.suffix.lower() in ['.docx', '.txt']:
+                        todos.append(sub)  # Path completo
+                        docs_nombres.append(sub.name)
+                    elif sub.is_dir() and not sub.name.startswith('.'):
+                        for sub2 in sub.iterdir():
+                            if sub2.is_file() and sub2.suffix.lower() in ['.docx', '.txt']:
+                                todos.append(sub2)  # Path completo, sin reconstruir
+                                docs_nombres.append(sub2.name)
+                if docs_nombres:
+                    dirs_info[item.name] = docs_nombres
             elif item.is_file() and item.suffix.lower() in ['.docx', '.txt']:
                 todos.append(item)
         
@@ -110,15 +108,31 @@ def _buscar_archivo(mensaje: str) -> Optional[Path]:
     for a in todos:
         partes = a.stem.lower().replace('_',' ').replace('-',' ').split()
         if sum(1 for p in partes if len(p)>3 and p in ml) >= 2: return a
-    # Estrategia 3: tipo de formato
+    # Estrategia 3: tipo de formato PERO filtrando por nombre de paciente si se menciona
     tipos = {"analisis":"analisis","análisis":"analisis","voi":"voi",
              "medidas":"medidas","recomendaciones":"recomendaciones",
              "cierre":"cierre","citacion":"citacion","empresas":"citacion",
              "prueba":"prueba","valoracion":"valoracion","desempeño":"valoracion"}
+    # Extraer posible nombre de paciente del mensaje
+    nombres_paciente = []
+    for patron in [r'(?:de|del|para)\s+([A-ZÁÉÍÓÚÑ]{2,}[A-ZÁÉÍÓÚÑ\s]{5,})',
+                   r'([A-ZÁÉÍÓÚÑ]{2,}\s+[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})?)']:
+        m = re.search(patron, mensaje)
+        if m:
+            partes = m.group(1).lower().split()
+            nombres_paciente.extend([p for p in partes if len(p) > 3])
+    
     for kw, tipo in tipos.items():
         if kw in ml:
             cand = [a for a in todos if tipo in a.stem.lower()]
-            if cand: return max(cand, key=lambda p: p.stat().st_mtime)
+            if cand:
+                # Si hay nombre de paciente, priorizar archivos que lo contengan
+                if nombres_paciente:
+                    cand_con_nombre = [a for a in cand if any(n in a.stem.lower() for n in nombres_paciente)]
+                    if cand_con_nombre:
+                        return max(cand_con_nombre, key=lambda p: p.stat().st_mtime)
+                # Si no, el más reciente
+                return max(cand, key=lambda p: p.stat().st_mtime)
     return None
 
 

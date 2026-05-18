@@ -2,7 +2,7 @@
 Chat inteligente de Tomy (Dashboard) — Especialista RILO SAS.
 Prompt ligero + carga de documentos por demanda.
 """
-import os, json, re, requests
+import os, json, re, requests, time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -48,16 +48,58 @@ Español colombiano, cálido, SIMPLE. CERO jerga técnica (no digas API, JSON, e
 
 # ═══ FIN PROMPT ═══
 
+# Caché del workspace (el rglob sobre /mnt/c/ es lentísimo)
+_cache_archivos = {"archivos": [], "timestamp": 0, "ws_list": ""}
+_CACHE_TTL = 300  # 5 minutos
+
+def _cache_workspace():
+    """Actualiza caché de archivos del workspace si expiró."""
+    global _cache_archivos
+    ahora = time.time()
+    if ahora - _cache_archivos["timestamp"] < _CACHE_TTL:
+        return
+    try:
+        todos = []
+        dirs_info = {}
+        for item in WORKSPACE_DIR.iterdir():
+            if item.name.startswith('.'): continue
+            if item.is_dir():
+                # Solo 2 niveles de profundidad para velocidad
+                docs = []
+                try:
+                    for sub in item.iterdir():
+                        if sub.is_file() and sub.suffix.lower() in ['.docx', '.txt']:
+                            docs.append(sub.name)
+                        elif sub.is_dir() and not sub.name.startswith('.'):
+                            for sub2 in sub.iterdir():
+                                if sub2.is_file() and sub2.suffix.lower() in ['.docx', '.txt']:
+                                    docs.append(sub2.name)
+                except PermissionError: pass
+                if docs:
+                    dirs_info[item.name] = docs
+                todos.extend([item / d for d in docs])
+            elif item.is_file() and item.suffix.lower() in ['.docx', '.txt']:
+                todos.append(item)
+        
+        ws_list = "\n".join(
+            f"📁 {d}/: {', '.join(files[:4])}" for d, files in sorted(dirs_info.items())
+        )[:800]
+        
+        _cache_archivos = {"archivos": todos, "timestamp": ahora, "ws_list": ws_list}
+    except Exception:
+        pass
+
 
 def _buscar_archivo(mensaje: str) -> Optional[Path]:
-    """Busca archivo mencionado en el mensaje. 3 estrategias."""
+    """Busca archivo mencionado en el mensaje. 3 estrategias. Usa caché."""
     if not WORKSPACE_DIR.exists(): return None
     triggers = ["formato","documento","archivo","arregla","completa","termina","revisa",
                 "analisis","análisis","carta","cierre","citacion","prueba","valoracion",
                 "desempeño","exigencias","recomendaciones","medidas","trabajo","voi"]
     if not any(t in mensaje.lower() for t in triggers): return None
     
-    todos = [f for f in WORKSPACE_DIR.rglob("*") if f.is_file() and f.suffix.lower() in ['.docx','.txt']]
+    _cache_workspace()
+    todos = _cache_archivos["archivos"]
     if not todos: return None
     
     ml = mensaje.lower()
@@ -107,18 +149,9 @@ def _leer_docx(ruta: Path) -> str:
 
 
 def _workspace_list() -> str:
-    """Lista rápida del workspace (solo nombres de archivos)."""
-    try:
-        if not WORKSPACE_DIR.exists(): return ""
-        items = []
-        for d in sorted(WORKSPACE_DIR.iterdir()):
-            if d.is_dir() and not d.name.startswith('.'):
-                docs = [f.name for f in d.rglob("*") if f.is_file() and f.suffix in ['.docx','.txt']]
-                if docs: items.append(f"📁 {d.name}/: {', '.join(docs[:4])}")
-            elif d.is_file() and d.suffix in ['.docx','.txt']:
-                items.append(f"📄 {d.name}")
-        return "\n".join(items[:15]) if items else ""
-    except: return ""
+    """Lista rápida del workspace (desde caché)."""
+    _cache_workspace()
+    return _cache_archivos.get("ws_list", "")
 
 
 def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", historial: list = None) -> str:

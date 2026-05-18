@@ -196,42 +196,24 @@ def descargar_archivo(filename: str):
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
     """
-    Punto de entrada del chat. Por ahora responde con lógica básica.
-    En producción, este endpoint reenvía al agente Hermes.
+    Chat con Tomy — Motor inteligente de conversación.
+    Procesa lenguaje natural: buscar documentos, completar formatos, verificar datos.
     """
-    msg = req.mensaje.lower()
-    cc = req.paciente_cc
-
-    if "siniestro" in msg:
-        respuesta = "El siniestro está registrado en los datos del paciente. ¿Necesitas generar algún formato?"
-    elif "formato" in msg or "generar" in msg:
-        respuesta = (
-            "Puedo generar estos formatos:\n"
-            "1. Análisis de Exigencias\n2. Carta de Medidas\n3. Carta de Recomendaciones\n"
-            "4. Cierre de Caso\n5. Citación de Empresas\n6. Prueba de Trabajo\n"
-            "7. Valoración del Desempeño\n\n¿Cuál necesitas? Dime el estado del caso (NUEVO, SEGUIMIENTO, CIERRE)."
-        )
-    elif "buscar" in msg or "paciente" in msg:
-        respuesta = "Para buscar un paciente, dime el número de cédula."
-    elif "corregir" in msg or "cambiar" in msg or "falta" in msg:
-        respuesta = (
-            "Entendido. Puedo corregir el documento. Dime qué hay que cambiar, por ejemplo:\n"
-            "• 'Falta el número de siniestro'\n• 'Cambia la fecha a 15/05/2026'\n• 'El diagnóstico está mal'"
-        )
-    else:
-        respuesta = (
-            "¡Hola Sandra! Soy Tomy. Puedo ayudarte a:\n"
-            "• Buscar pacientes en Medifolios y ARL Positiva\n"
-            "• Generar los 7 formatos clínicos\n"
-            "• Corregir documentos según tus indicaciones\n"
-            "• Transcribir audios de citas\n\n¿En qué te ayudo?"
-        )
-
-    return {
-        "rol": "asistente",
-        "contenido": respuesta,
-        "timestamp": datetime.now().isoformat(),
-    }
+    try:
+        from backend.chat_handler import procesar_mensaje
+        resultado = procesar_mensaje(req.mensaje, req.paciente_cc)
+        return {
+            "ok": True,
+            "contenido": resultado["contenido"],
+            "accion": resultado.get("accion"),
+            "datos": resultado.get("datos"),
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "contenido": f"❌ Error: {str(e)}",
+            "accion": None,
+        }
 
 
 @app.post("/api/upload-audio")

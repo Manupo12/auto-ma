@@ -2780,3 +2780,18 @@ git commit -m "🚀 Fase A: rollout completo en producción WSL"
 **3. Consistencia tipos:** `extraer_paciente_completo()` aparece con misma firma en Tasks 8, 9, 10, 13, 14. `_procesar_via_workers` aparece consistente en Tasks 3 y 13. Variables `FASE_A_ENABLED` y `FASE_A_CRON_ENABLED` consistentes en todas las tasks. `LLM_MODEL_EXTRACCION` / `LLM_MODEL_SINTESIS` consistentes.
 
 Plan listo.
+
+---
+
+## Appendix B — Diferencias plan vs implementación real
+
+| Item | Plan | Implementación | Decisión |
+|------|------|----------------|----------|
+| Modelo extracción | `deepseek-chat` | `deepseek-v4-flash` | OpenCode Go no tiene `deepseek-chat`. `deepseek-v4-flash` es el equivalente sin razonamiento. |
+| `lote_worker.py` salida JSON | `datos` con campos estructurados | `datos_raw` con texto plano | El LLM devuelve texto plano en vez de JSON estructurado. Se mantiene `datos_raw` para no forzar parsing que puede fallar. |
+| `/api/portales/health` | Heartbeat real (login + carga 1 página) | State check simple (storage_state existe + creds configuradas) | Un heartbeat real abriría navegador cada request. El state check es seguro y rápido. Si se necesita probar, usar test live. |
+| `/api/verificar/{cc}/extraer` (POST) | Reemplazado por `extraer-ahora` | Ruta vieja eliminada con `puente_docker.py` | Coherente con eliminación del módulo puente. |
+| `fusionador.py` integración discrepancias | `_meta.discrepancias` desde orquestador | Lee `_meta.discrepancias` de ambos fuentes y las consolida en `_metadata.discrepancias_portales` | Más robusto: mergea discrepancias de ambos lados. |
+| `_formatear_datos_verificados` | `siniestro_final` del plan | Usa `datos["medifolios"]["siniestro_medi"]` y `datos["positiva"]["siniestros"][0]["id"]` | Estructura real del JSON de orquestador, no la especulación del spec. |
+
+**Aceptado como nuevo baseline.** El spec original era un diseño inicial; la implementación reveló ajustes necesarios (modelos reales, estructura JSON real, performance). No vale la pena alinear artificialmente — el código funciona contra APIs/portales reales.

@@ -738,6 +738,78 @@ Si un dato no aparece, escribe FALTA."""
 Mensaje original de Sandra: "{mensaje_original[:200]}" """
 
 
+def _get_data_dir() -> Path:
+    """Retorna el directorio de datos (configurable vía STORAGE_DIR)."""
+    storage = Path(os.getenv("STORAGE_DIR", str(Path(__file__).parent.parent / "storage")))
+    return storage / "data"
+
+
+def _cargar_datos_verificados(cc: str) -> Optional[dict]:
+    """Busca storage/data/*{cc}*completo.json y lo carga."""
+    if not cc:
+        return None
+    data_dir = _get_data_dir()
+    if not data_dir.exists():
+        return None
+    pattern = f"*{cc}*completo.json"
+    matches = sorted(data_dir.glob(pattern), key=os.path.getmtime, reverse=True)
+    if not matches:
+        return None
+    try:
+        with open(matches[0], encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _formatear_datos_verificados(datos: dict) -> str:
+    """Genera texto con marcas ✅/⚠️/❌ a partir del JSON de orquestador."""
+    if not datos:
+        return ""
+    partes = []
+    medi = datos.get("medifolios", {})
+    pos = datos.get("positiva", {})
+
+    siniestro_medi = medi.get("siniestro_medi", "[SIN DATO]")
+    siniestros_pos = pos.get("siniestros", [])
+    siniestro_pos_id = siniestros_pos[0].get("id", "[SIN DATO]") if siniestros_pos else "[SIN DATO]"
+
+    if siniestro_medi == siniestro_pos_id and siniestro_medi != "[SIN DATO]":
+        partes.append(f"✅ Siniestro: {siniestro_pos_id} (coincide Medifolios + Positiva)")
+    elif siniestro_medi and siniestro_pos_id and siniestro_medi != "[SIN DATO]" and siniestro_pos_id != "[SIN DATO]":
+        partes.append(f"❌ Siniestro DISCREPANCIA: Medifolios={siniestro_medi} vs Positiva={siniestro_pos_id}")
+        partes.append("   → Prevalece Positiva (fuente oficial)")
+    elif siniestro_pos_id and siniestro_pos_id != "[SIN DATO]":
+        partes.append(f"✅ Siniestro: {siniestro_pos_id} (Positiva)")
+        if siniestro_medi == "[SIN DATO]" or not siniestro_medi:
+            partes.append("   ⚠️ No disponible en Medifolios")
+    else:
+        partes.append("⚠️ Siniestro no disponible en ningún portal")
+
+    nombre_medi = medi.get("nombre1") or medi.get("nombre", "")
+    apellido_medi = medi.get("apellido1", "")
+    nombre = f"{nombre_medi} {apellido_medi}".strip()
+    if nombre:
+        partes.append(f"✅ Paciente: {nombre}")
+    if medi.get("telefono"):
+        partes.append(f"✅ Teléfono: {medi['telefono']}")
+    if medi.get("direccion"):
+        partes.append(f"✅ Dirección: {medi['direccion']}")
+
+    discrepancias = datos.get("_meta", {}).get("discrepancias", [])
+    for d in discrepancias:
+        partes.append(f"❌ {d.get('campo', 'desconocido')}: Medifolios={d.get('medifolios','?')} vs Positiva={d.get('positiva','?')}")
+        if d.get("resolucion"):
+            partes.append(f"   → {d['resolucion']}")
+
+    if not partes:
+        partes.append("ℹ️ No hay datos verificados disponibles")
+
+    fecha = datos.get("_meta", {}).get("extraido_en", "")
+    header = f"📋 DATOS VERIFICADOS (extraído: {fecha})" if fecha else "📋 DATOS VERIFICADOS"
+    return f"\n\n═══════════════════════════════\n{header}\n" + "\n".join(partes) + "\n═══════════════════════════════\n"
+
+
 def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None) -> dict:
     """Procesa mensaje del chat. Soporta hasta 7 formatos por paciente."""
     _log(f"═════ '{mensaje[:100]}' ═════")
@@ -755,7 +827,18 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
         m = re.search(r'\b(\d{6,12})\b', mensaje.replace("'", "").replace(".", "").replace(",", ""))
         if m: cc = m.group(1)
 
-    # 3. Buscar archivos — PRIMERO multi (todos los del paciente), luego individual
+    # 3. NUEVO: Cargar datos verificados si Fase A activa
+    datos_verificados = None
+    sugerir_extraccion = False
+    if os.getenv("FASE_A_ENABLED", "false").lower() == "true" and cc:
+        datos_verificados = _cargar_datos_verificados(cc)
+        if datos_verificados:
+            _log(f"VERIFIED: datos cargados para CC {cc}")
+        else:
+            sugerir_extraccion = True
+            _log(f"VERIFIED: sin datos para CC {cc}")
+
+    # 4. Buscar archivos — PRIMERO multi (todos los del paciente), luego individual
     archivos_paciente = _buscar_archivos_paciente(cc=cc, mensaje=mensaje)
     
     if archivos_paciente and len(archivos_paciente) >= 3:
@@ -776,8 +859,21 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
         doc_content = _leer_docx(archivo) if archivo else ""
         archivo_nombre = archivo.name if archivo else None
 
-    # 4. Llamar LLM con todo el contexto
-    respuesta = _llamar_llm(mensaje, cc, doc_content, workspace_files)
+    # 5. Inyectar datos verificados al contexto del LLM
+    if datos_verificados:
+        doc_content = (doc_content or "") + _formatear_datos_verificados(datos_verificados)
+
+    # 6. Si no hay datos y hay CC, agregar sugerencia
+    if sugerir_extraccion:
+        mensaje_con_sugerencia = mensaje + (
+            "\n\n💡 No tengo datos verificados de este paciente todavía. "
+            "¿Quieres que verifique en Medifolios y Positiva ahora? (~2 min)."
+        )
+    else:
+        mensaje_con_sugerencia = mensaje
+
+    # 7. Llamar LLM con todo el contexto
+    respuesta = _llamar_llm(mensaje_con_sugerencia, cc, doc_content, workspace_files)
     
     total_time = time.time() - t_total
     _log(f"═════ Listo en {total_time:.1f}s ═════")

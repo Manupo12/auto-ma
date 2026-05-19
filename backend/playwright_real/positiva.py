@@ -70,6 +70,29 @@ async def _extraer_datos_asegurado(page: Page) -> Dict:
     return datos
 
 
+async def _extraer_tabla_generica(page: Page) -> List[Dict]:
+    """Extrae cualquier tabla HTML como lista de dicts."""
+    filas_data = []
+    try:
+        filas = await page.locator("table tbody tr").all()
+        for fila in filas:
+            celdas = await fila.locator("td").all_text_contents()
+            if celdas:
+                filas_data.append({f"col{i}": c.strip() for i, c in enumerate(celdas)})
+    except Exception:
+        pass
+    return filas_data
+
+
+async def _extraer_panel_activo(page: Page) -> str:
+    """Extrae texto del panel visible después de clickear una pestaña."""
+    try:
+        content = await page.locator(".tab-pane.active, .panel-body, main").text_content(timeout=5000)
+        return (content or "").strip()[:1500]
+    except Exception:
+        return ""
+
+
 async def get_paciente_completo(page: Page, cc: str) -> Dict:
     """
     Función principal. Navega las 6 pestañas y extrae datos.
@@ -95,40 +118,20 @@ async def get_paciente_completo(page: Page, cc: str) -> Dict:
         datos_aseg = await _extraer_datos_asegurado(page)
         datos.update(datos_aseg)
 
-    # 3. Rehabilitación integral
-    if await _click_tab(page, "rehab_integral"):
-        try:
-            contenido = await page.locator("[data-tab='rehabilitacion']").text_content(timeout=5000)
-            if contenido:
-                datos["rehabilitacion_integral"] = contenido.strip()[:1000]
-        except Exception:
-            pass
-
-    # 4. Gestión autorizaciones
-    if await _click_tab(page, "gestion_aut"):
-        try:
-            contenido = await page.locator("[data-tab='autorizaciones']").text_content(timeout=5000)
-            if contenido:
-                datos["autorizaciones"] = contenido.strip()[:1000]
-        except Exception:
-            pass
-
-    # 5. Evoluciones
-    if await _click_tab(page, "evoluciones"):
-        try:
-            contenido = await page.locator("[data-tab='evoluciones']").text_content(timeout=5000)
-            if contenido:
-                datos["evoluciones"] = contenido.strip()[:1000]
-        except Exception:
-            pass
-
-    # 6. Bitácoras
-    if await _click_tab(page, "bitacoras"):
-        try:
-            contenido = await page.locator("[data-tab='bitacoras']").text_content(timeout=5000)
-            if contenido:
-                datos["bitacoras"] = contenido.strip()[:1000]
-        except Exception:
-            pass
+    # 3-6. Pestañas restantes: extraer tablas + texto visible
+    for tab_key, data_key in [
+        ("rehab_integral", "rehabilitacion_integral"),
+        ("gestion_aut", "autorizaciones"),
+        ("evoluciones", "evoluciones"),
+        ("bitacoras", "bitacoras"),
+    ]:
+        if await _click_tab(page, tab_key):
+            tablas = await _extraer_tabla_generica(page)
+            if tablas:
+                datos[data_key] = tablas
+            else:
+                texto = await _extraer_panel_activo(page)
+                if texto:
+                    datos[data_key] = texto
 
     return datos

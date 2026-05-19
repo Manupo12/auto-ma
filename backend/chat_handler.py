@@ -859,6 +859,18 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
         doc_content = _leer_docx(archivo) if archivo else ""
         archivo_nombre = archivo.name if archivo else None
 
+    # 4.5. NUEVO: detectar comando "organiza este formato"
+    if any(kw in mensaje.lower() for kw in ["organiza este formato", "organízame este", "organizame el formato"]):
+        archivo = _buscar_archivo(mensaje)
+        if archivo and cc:
+            try:
+                from backend.organizador_formato import organizar_formato
+                resultado_org = organizar_formato(str(archivo), cc)
+                if resultado_org.get("ok"):
+                    doc_content = (doc_content or "") + f"\n\n[FORMATO ORGANIZADO]:\n{json.dumps(resultado_org, ensure_ascii=False, indent=2)}"
+            except Exception as e:
+                _log(f"ORGANIZAR: error {e}")
+
     # 5. Inyectar datos verificados al contexto del LLM
     if datos_verificados:
         doc_content = (doc_content or "") + _formatear_datos_verificados(datos_verificados)

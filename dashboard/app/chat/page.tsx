@@ -76,7 +76,7 @@ export default function ChatPage() {
           historial: updatedMensajes.slice(-10),
         }),
         // No timeout infinito — si tarda >45s, el navegador aborta
-        signal: AbortSignal.timeout(50000),
+        signal: AbortSignal.timeout(180000),
       });
 
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);

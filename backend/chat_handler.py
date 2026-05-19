@@ -129,7 +129,7 @@ def _listar_workspace() -> str:
         else:
             lines.append(f"  📄 {rel} ({size_kb}KB, {mtime})")
     
-    result = "\n".join(lines) if lines else "  (carpeta vacía)"
+    result = "\n".join(lines[:20]) if lines else "  (carpeta vacía)"
     _log(f"WORKSPACE: {len(entries)} entradas en {elapsed:.1f}s → {len(lines)} líneas")
     
     _cache_workspace = {"files": result, "ts": now}
@@ -266,7 +266,7 @@ def _leer_docx(ruta: Path) -> str:
 
 
 def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_files: str = "") -> str:
-    """Llama al LLM. Con manejo de respuesta vacía."""
+    """Llama al LLM. DeepSeek v4: modelo de razonamiento — necesita max_tokens alto."""
     if not API_KEY:
         _log("LLM: ❌ sin API key")
         return "⚠️ No tengo conexión con mi cerebro (falta API key). Revisá el archivo .env"
@@ -291,58 +291,96 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
     _log(f"LLM: {total_chars} chars → {MODEL}")
     t0 = time.time()
 
-    # Intentar hasta 2 veces si respuesta vacía
+    # DeepSeek v4 es modelo de razonamiento — necesita espacio para pensar Y responder.
+    # Sin límites artificiales: 8000 tokens da margen para razonamiento (~2000) + respuesta (~6000).
+    max_tokens_values = [8000, 12000]  # intento 1: 8000, intento 2: 12000
+    
     for intento in range(2):
         try:
+            max_tok = max_tokens_values[intento]
             resp = requests.post(
                 f"{BASE_URL}/chat/completions",
                 headers={
                     "Authorization": f"Bearer {API_KEY}",
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0",
                 },
                 json={
                     "model": MODEL,
                     "messages": messages,
                     "temperature": 0.7,
-                    "max_tokens": 800
+                    "max_tokens": max_tok,
                 },
-                timeout=45
+                timeout=180
             )
             elapsed = time.time() - t0
-            _log(f"LLM: HTTP {resp.status_code} en {elapsed:.1f}s")
+            usage_info = ""
             
             if resp.status_code == 200:
                 body = resp.json()
                 choices = body.get("choices", [])
                 if choices:
-                    text = (choices[0].get("message", {}).get("content", "") or "").strip()
-                    _log(f"LLM: {len(text)} chars (intento {intento+1})")
-                    if text:
-                        return text
-                    _log("LLM: ⚠️ respuesta vacía, reintentando con temperatura más alta...")
-                    # Reintentar con más temperatura
+                    choice = choices[0]
+                    msg = choice.get("message", {})
+                    content = (msg.get("content", "") or "").strip()
+                    reasoning = (msg.get("reasoning_content", "") or "").strip()
+                    finish = choice.get("finish_reason", "?")
+                    usage = body.get("usage", {})
+                    total_tok = usage.get("total_tokens", "?")
+                    
+                    _log(f"LLM: content={len(content)}chars reasoning={len(reasoning)}chars "
+                         f"finish={finish} tokens={total_tok} max_tokens={max_tok} "
+                         f"(intento {intento+1})")
+                    
+                    if content:
+                        return content
+                    
+                    # Si content vacío pero finish=length → los tokens se agotaron en razonamiento
+                    if finish == "length" and reasoning:
+                        _log(f"LLM: finish=length, {len(reasoning)} chars de razonamiento. "
+                             f"Reintentando con max_tokens={max_tokens_values[1] if intento==0 else 'N/A'}...")
+                        if intento == 0:
+                            continue  # reintentar con más tokens
+                        else:
+                            # Último intento: extraer algo del razonamiento
+                            lines = [l.strip() for l in reasoning.split('\n') if l.strip()]
+                            last_lines = lines[-3:] if len(lines) > 3 else lines
+                            fallback = "🤔 Estoy procesando tu solicitud. " + " ".join(last_lines)[:300]
+                            _log(f"LLM: usando fallback de razonamiento ({len(fallback)} chars)")
+                            return fallback
+                    
+                    if finish == "stop" and not content:
+                        _log("LLM: finish=stop pero content vacío — modelo no generó respuesta")
+                        if intento == 0:
+                            # Reintentar con prompt más directo
+                            messages.append({"role": "user", "content": "Responde directamente en español, por favor."})
+                            continue
+                        return "🤔 El modelo no generó respuesta. Intentá con un mensaje más específico."
+                    
+                    # Otro caso raro
+                    _log(f"LLM: caso no manejado — content={len(content)} finish={finish}")
                     if intento == 0:
-                        messages.append({"role": "user", "content": "Responde por favor, aunque sea breve."})
                         continue
                 else:
-                    _log(f"LLM: sin choices en respuesta: {json.dumps(body)[:200]}")
+                    _log(f"LLM: sin choices: {json.dumps(body)[:200]}")
+                    return "🤔 El servicio de IA no devolvió respuesta. Intentá de nuevo."
             else:
-                _log(f"LLM: error HTTP {resp.status_code}: {resp.text[:200]}")
-                return f"🤔 El servicio de IA no responde (error {resp.status_code}). Intentá de nuevo en un momento."
+                _log(f"LLM: HTTP {resp.status_code}: {resp.text[:200]}")
+                return f"🤔 Error del servicio IA (HTTP {resp.status_code})."
         
         except requests.exceptions.Timeout:
-            _log(f"LLM: ⏰ timeout tras {time.time()-t0:.1f}s")
+            _log(f"LLM: timeout tras {time.time()-t0:.1f}s")
             if intento == 0:
-                _log("LLM: reintentando...")
                 continue
             return "⏰ El servicio está tardando mucho. ¿Podés intentar con un mensaje más corto?"
         except Exception as e:
-            _log(f"LLM: ❌ {type(e).__name__}: {e}")
-            return f"❌ Error de conexión: {type(e).__name__}. Revisá tu internet."
+            _log(f"LLM: {type(e).__name__}: {e}")
+            if intento == 0:
+                continue
+            return f"❌ Error de conexión: {type(e).__name__}."
 
-    # Si llegamos aquí, ambos intentos fallaron con respuesta vacía
-    _log("LLM: ❌ 2 intentos, ambos vacíos")
-    return "🤔 No pude generar una respuesta. ¿Podés intentar de nuevo con otras palabras?"
+    _log("LLM: ❌ agotados los reintentos")
+    return "🤔 No pude generar respuesta después de varios intentos. ¿Probás con un mensaje más concreto?"
 
 
 def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None) -> dict:

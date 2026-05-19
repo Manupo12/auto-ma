@@ -87,6 +87,9 @@ class GenerarRequest(BaseModel):
     estado_caso: Optional[str] = None
 
 
+class OrganizarFormatoRequest(BaseModel):
+    paciente_cc: str
+
 class CorregirRequest(BaseModel):
     mensaje: str
 
@@ -651,3 +654,126 @@ def portales_health():
         },
         "fase_a_habilitada": os.getenv("FASE_A_ENABLED", "false").lower() == "true",
     }
+
+
+# ─── Tomy Completo: workflow endpoints ─────────────────────────
+
+WORKFLOW_AUDIOS_DIR = STORAGE / "workflow_audios"
+WORKFLOW_AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@app.post("/api/procesar-paciente")
+async def procesar_paciente(
+    audio: UploadFile = File(...),
+    paciente_cc: str = Form(...),
+):
+    """
+    Endpoint principal: Sandra sube audio + CC.
+    Se crea task, se guarda audio, se dispara workflow en background.
+    Devuelve task_id para que el dashboard haga polling.
+    """
+    if os.getenv("TOMY_COMPLETO_ENABLED", "false").lower() != "true":
+        raise HTTPException(503, "Tomy Completo no habilitado (TOMY_COMPLETO_ENABLED=false)")
+
+    ext = Path(audio.filename or "audio.m4a").suffix or ".m4a"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    audio_path = WORKFLOW_AUDIOS_DIR / f"{paciente_cc}_{timestamp}{ext}"
+    contenido = await audio.read()
+    audio_path.write_bytes(contenido)
+
+    from backend.task_db import TaskDB
+    from backend.workflow_runner import ejecutar_workflow
+
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+    db = TaskDB(db_path)
+    task_id = db.crear_task(paciente_cc=paciente_cc, audio_path=str(audio_path))
+
+    import threading
+    def _runner():
+        try:
+            ejecutar_workflow(audio_path=str(audio_path), paciente_cc=paciente_cc, task_id_existente=task_id)
+        except Exception as e:
+            print(f"[WORKFLOW BG] error: {e}", file=__import__("sys").stderr)
+    threading.Thread(target=_runner, daemon=True).start()
+
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "audio_path": str(audio_path),
+        "mensaje": f"Procesamiento iniciado. Te aviso por Telegram en 10-20 min. Mientras, ver progreso en /api/tasks/{task_id}",
+    }
+
+
+@app.get("/api/tasks/{task_id}")
+def estado_task(task_id: str):
+    """Estado actual de un workflow task."""
+    from backend.task_db import TaskDB
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+    db = TaskDB(db_path)
+    task = db.obtener_task(task_id)
+    if not task:
+        raise HTTPException(404, f"Task {task_id} no encontrada")
+    return {"ok": True, "task": task}
+
+
+@app.get("/api/tasks/paciente/{cc}")
+def listar_tasks_paciente(cc: str):
+    """Historial de workflows del paciente."""
+    from backend.task_db import TaskDB
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+    db = TaskDB(db_path)
+    return {"ok": True, "tasks": db.listar_tasks_paciente(cc)}
+
+
+@app.get("/api/tasks/activas")
+def listar_activas():
+    """Tasks actualmente en proceso (dashboard 'Mi Día')."""
+    from backend.task_db import TaskDB
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+    db = TaskDB(db_path)
+    return {"ok": True, "tasks": db.listar_activos()}
+
+
+@app.post("/api/tasks/{task_id}/cancelar")
+def cancelar_task(task_id: str):
+    """Cancela una task."""
+    from backend.task_db import TaskDB
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+    db = TaskDB(db_path)
+    db.guardar_resultado(task_id, {"cancelado_por_usuario": True}, estado="cancelado")
+    return {"ok": True, "mensaje": "Task cancelada"}
+
+
+@app.post("/api/organizar-formato")
+async def endpoint_organizar_formato(
+    archivo: UploadFile = File(...),
+    paciente_cc: str = Form(...),
+):
+    """Sandra sube un formato crudo, Tomy lo organiza."""
+    ext = Path(archivo.filename or "f.docx").suffix
+    tmp_path = STORAGE / "formatos_subidos" / f"organizar_{datetime.now().strftime('%Y%m%d_%H%M%S')}{ext}"
+    tmp_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path.write_bytes(await archivo.read())
+
+    from backend.organizador_formato import organizar_formato
+    resultado = organizar_formato(str(tmp_path), paciente_cc)
+    return resultado
+
+
+@app.post("/api/corregir-paciente/{cc}")
+async def endpoint_corregir(cc: str, req: CorregirRequest):
+    """Sandra envía corrección por chat → Tomy interpreta y aplica."""
+    from backend.correction_resolver import interpretar_correccion
+    from backend.aplicador_correccion import aplicar_correccion
+
+    correccion = interpretar_correccion(req.mensaje, paciente_cc=cc)
+    if correccion.get("confianza", 0) < 0.5:
+        return {
+            "ok": False,
+            "estado": "confianza_baja",
+            "mensaje": "No entendí qué corregir. ¿Me lo decís de otra forma? Por ejemplo: 'el siniestro es 503476658'.",
+            "interpretacion": correccion,
+        }
+
+    resultado = aplicar_correccion(cc, correccion)
+    return resultado

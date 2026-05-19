@@ -1,4 +1,9 @@
 """
+[DEPRECATED] — Lógica migrada a backend/playwright_real/session.py
+
+Este archivo se mantiene como referencia de la estrategia de sesión.
+La implementación real ahora usa Playwright con storage_state persistente.
+
 Manejo de sesión expirada para portales — capa ⑧ del flujo v2.
 
 Los portales de salud (Medifolios, ARL Positiva) cierran sesión en 5-15 min.
@@ -6,8 +11,8 @@ Este módulo define la estrategia de detección y re-autenticación para que
 el flujo de extracción no se rompa a la mitad.
 
 ESTRATEGIA:
-  1. Detección proactiva: antes de cada acción, verificar que estamos donde debemos
-  2. Re-autenticación: si se detecta login, volver a loguear y restaurar estado
+   1. Detección proactiva: antes de cada acción, verificar que estamos donde debemos
+   2. Re-autenticación: si se detecta login, volver a loguear y restaurar estado
   3. Máximo 3 reintentos por sesión
   4. Guardar progreso parcial después de cada extracción exitosa
 

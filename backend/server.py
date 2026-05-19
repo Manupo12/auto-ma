@@ -18,6 +18,7 @@ Ejecutar:
 import os
 import json
 import glob
+import asyncio
 import tempfile
 from pathlib import Path
 from datetime import datetime
@@ -54,6 +55,24 @@ AUDIO_DIR = STORAGE / "audio"
 
 for d in [DOCS_DIR, PDFS_DIR, DATA_DIR, AUDIO_DIR]:
     d.mkdir(parents=True, exist_ok=True)
+
+# Almacén de tareas asíncronas de extracción
+_extraccion_tasks: Dict[str, dict] = {}
+
+
+async def _ejecutar_extraccion_background(cc: str, task_id: str):
+    """Ejecuta extracción en background y actualiza _extraccion_tasks."""
+    from backend.playwright_real.orquestador import extraer_paciente_completo
+    _extraccion_tasks[task_id] = {"estado": "extrayendo"}
+    try:
+        resultado = await extraer_paciente_completo(cc, guardar=True)
+        _extraccion_tasks[task_id] = {
+            "estado": "completo" if not resultado["_meta"].get("parcial") else "parcial",
+            "datos": resultado,
+            "discrepancias": resultado["_meta"].get("discrepancias", []),
+        }
+    except Exception as e:
+        _extraccion_tasks[task_id] = {"estado": "error", "error": str(e)}
 
 
 # ── Modelos ────────────────────────────────────────────────────────────────
@@ -514,60 +533,121 @@ def diagnosticar_workspace():
         return {"ok": False, "error": str(e)}
 
 
-# ── Verificación de portales ──────────────────────────────────────
+# ── Verificación de portales (Fase A) ──────────────────────────────────────
+
+@app.on_event("startup")
+async def iniciar_cron():
+    """Inicia el scheduler de pre-extracción si está habilitado."""
+    from backend.cron_pre_extraccion import iniciar_scheduler
+    iniciar_scheduler()
+
 
 @app.get("/api/verificar/{cc}")
 def verificar_paciente(cc: str):
     """
     Verifica los datos de un paciente contra los portales.
-    Si ya hay datos extraídos, los retorna. Si no, los extrae AHORA.
+    Si ya hay datos extraídos en storage/data/{cc}-completo.json los retorna.
+    Si no, informa que se necesita extraer.
     """
     try:
-        from backend.puente_docker import obtener_datos_verificados, extraer_desde_wsl
-        
-        # Primero buscar si ya hay datos
-        datos = obtener_datos_verificados(cc)
-        
-        if datos.get("estado") == "pendiente_extraccion":
-            return {
-                "ok": True,
-                "estado": "pendiente",
-                "mensaje": f"CC {cc} — Se necesita extraer datos de los portales.",
-                "sugerencia": "Usa POST /api/verificar/{cc}/extraer para iniciar la extracción."
-            }
-        
-        return datos
-        
+        from backend.playwright_real.orquestador import _cargar_json
+        datos = _cargar_json(cc)
+        if datos:
+            return {"ok": True, "estado": "completo", "datos": datos}
+        return {
+            "ok": True,
+            "estado": "pendiente",
+            "mensaje": f"CC {cc} — No hay datos extraídos aún.",
+            "sugerencia": "Usa POST /api/verificar/{cc}/extraer-ahora para extraer ahora.",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/verificar/{cc}/extraer")
-def extraer_paciente(cc: str):
+@app.post("/api/verificar/{cc}/extraer-ahora")
+async def extraer_paciente_ahora(cc: str):
     """
-    DISPARA la extracción de portales para un paciente.
-    Navega Medifolios + ARL Positiva y extrae todos los datos.
-    Tarda 2-5 minutos.
+    DISPARA la extracción de portales AHORA (síncrono).
+    Navega Medifolios + Positiva. Tarda 2-5 minutos.
     """
     try:
-        from backend.puente_docker import extraer_desde_wsl
-        
-        resultado = extraer_desde_wsl(cc)
-        
-        if resultado.get("ok"):
-            return {
-                "ok": True,
-                "estado": resultado.get("estado"),
-                "datos": resultado.get("datos", {}),
-                "mensaje": f"✅ Datos de CC {cc} verificados contra portales.",
-            }
-        else:
-            return {
-                "ok": False,
-                "estado": resultado.get("estado", "error"),
-                "error": resultado.get("error", ""),
-                "log": resultado.get("log", ""),
-            }
-            
+        from backend.playwright_real.orquestador import extraer_paciente_completo
+        resultado = await extraer_paciente_completo(cc, guardar=True)
+        return {
+            "ok": True,
+            "estado": "completo" if not resultado["_meta"].get("parcial") else "parcial",
+            "datos": resultado,
+            "discrepancias": resultado["_meta"].get("discrepancias", []),
+            "mensaje": f"✅ CC {cc} extraído. "
+                       f"{'Parcial — revisar log.' if resultado['_meta'].get('parcial') else 'Completo.'}",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/verificar/{cc}/extraer-async")
+async def extraer_paciente_async(cc: str):
+    """
+    Dispara extracción asíncrona en background.
+    Devuelve task_id para consultar estado después.
+    """
+    task_id = f"{cc}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    _extraccion_tasks[task_id] = {"estado": "iniciando"}
+    asyncio.create_task(_ejecutar_extraccion_background(cc, task_id))
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "mensaje": f"Extracción de CC {cc} iniciada en background. Task ID: {task_id}",
+    }
+
+
+@app.get("/api/verificar/task/{task_id}")
+def estado_extraccion_async(task_id: str):
+    """Consulta estado de una extracción asíncrona."""
+    estado = _extraccion_tasks.get(task_id, {"estado": "no_encontrado"})
+    return {"ok": True, "task_id": task_id, **estado}
+
+
+# ── Endpoints de Cron ──────────────────────────────────────────────
+
+@app.get("/api/cron/estado")
+def cron_estado():
+    """Estado del scheduler nocturno."""
+    try:
+        from backend.cron_pre_extraccion import obtener_estado
+        return {"ok": True, **obtener_estado()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/api/cron/disparar-ahora")
+async def cron_disparar_ahora():
+    """Disparar el cron nocturno manualmente (testing)."""
+    try:
+        from backend.cron_pre_extraccion import revisar_email_y_extraer
+        await revisar_email_y_extraer()
+        return {"ok": True, "mensaje": "Cron nocturno ejecutado manualmente."}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/portales/health")
+def portales_health():
+    """
+    Health check de portales.
+    Verifica si hay storage_state y última extracción.
+    """
+    sessions_dir = Path(os.getenv("PLAYWRIGHT_SESSIONS_DIR", "./storage/playwright_sessions"))
+    medi_state = sessions_dir / "medifolios.json"
+    pos_state = sessions_dir / "positiva.json"
+    return {
+        "medifolios": {
+            "configurado": bool(os.getenv("MEDIFOLIOS_USER")),
+            "sesion_guardada": medi_state.exists(),
+        },
+        "positiva": {
+            "configurado": bool(os.getenv("POSITIVA_USER")),
+            "sesion_guardada": pos_state.exists(),
+        },
+        "fase_a_habilitada": os.getenv("FASE_A_ENABLED", "false").lower() == "true",
+    }

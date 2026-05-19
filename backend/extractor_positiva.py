@@ -1,4 +1,9 @@
 """
+[DEPRECATED] — Reemplazado por backend/playwright_real/positiva.py
+
+Este archivo se mantiene como referencia documental de los pasos de extracción.
+La implementación real ahora usa Playwright (ver playwright_real/).
+
 Extractor ARL Positiva — Sub-flujo B del flujo v2.
 
 Extrae datos del paciente desde ARL Positiva usando browser automation.
@@ -6,8 +11,8 @@ El agente sigue estos pasos para navegar y extraer información de
 Consulta integral (6 pestañas) y Consultar caso RHI.
 
 Fuentes de datos en Positiva:
-  1. Consulta integral → SINIESTROS (ID, fecha, diagnóstico, %PCL)
-  2. Consulta integral → REHABILITACIÓN INTEGRAL (CIE10, proveedor, estado)
+   1. Consulta integral → SINIESTROS (ID, fecha, diagnóstico, %PCL)
+   2. Consulta integral → REHABILITACIÓN INTEGRAL (CIE10, proveedor, estado)
   3. Consulta integral → DATOS ASEGURADO (nombre, dirección, tel, email)
   4. Consulta integral → GESTIÓN AUTORIZACIONES (aut/neg, procedimientos)
   5. Consulta integral → EVOLUCIONES (seguimiento, incapacidades)

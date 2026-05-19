@@ -286,7 +286,16 @@ def fusionar_todo(
     if aud.get("recomendaciones"):
         resultado["recomendaciones"] = aud["recomendaciones"]
     
-    # Agregar metadata
+    # Integrar discrepancias de Fase A (Playwright real) si existen
+    discrepancias = []
+    if isinstance(datos_medifolios, dict) and datos_medifolios.get("_meta", {}).get("discrepancias"):
+        discrepancias = datos_medifolios["_meta"]["discrepancias"]
+    if isinstance(datos_positiva, dict) and datos_positiva.get("_meta", {}).get("discrepancias"):
+        discrepancias.extend(
+            d for d in datos_positiva["_meta"]["discrepancias"]
+            if d not in discrepancias
+        )
+
     resultado["_metadata"] = {
         "fecha_extraccion": datetime.now().isoformat(),
         "fuentes": {
@@ -295,6 +304,7 @@ def fusionar_todo(
             "audio": datos_audio is not None,
         },
         "reconciliacion_siniestro": reconciliacion,
+        "discrepancias_portales": discrepancias,
         "total_campos": sum(
             len(v) if isinstance(v, dict) else 1
             for k, v in resultado.items()

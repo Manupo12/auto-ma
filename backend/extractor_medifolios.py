@@ -1,13 +1,18 @@
 """
+[DEPRECATED] — Reemplazado por backend/playwright_real/medifolios.py
+
+Este archivo se mantiene como referencia documental de los pasos de extracción.
+La implementación real ahora usa Playwright (ver playwright_real/).
+
 Extractor Medifolios — Sub-flujo A del flujo v2.
 
 Extrae datos del paciente desde Medifolios usando browser automation.
 El agente sigue estos pasos para navegar y extraer información.
 
 Fuentes de datos en Medifolios:
-  1. Agenda Citas → Popup Detalle Solicitud → SINIESTRO (en Observaciones)
-  2. Pacientes → Formulario → DATOS PERSONALES + DATOS GENERALES
-  3. Pacientes → Historia Clínica → Visión Clinica General
+   1. Agenda Citas → Popup Detalle Solicitud → SINIESTRO (en Observaciones)
+   2. Pacientes → Formulario → DATOS PERSONALES + DATOS GENERALES
+   3. Pacientes → Historia Clínica → Visión Clinica General
 
 Output: JSON parcial que se fusiona con los datos de Positiva y Audio.
 

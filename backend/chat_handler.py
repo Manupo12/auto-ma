@@ -33,23 +33,124 @@ _cache_workspace = {"files": "", "ts": 0}
 def _log(msg):
     print(f"[TOMY {datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
 
-SYSTEM_PROMPT = """Eres Tomy, asistente de Sandra (RILO SAS, fisioterapeuta ARL Positiva Colombia).
-Español colombiano, cálido, SIMPLE. CERO jerga técnica.
+SYSTEM_PROMPT = """Eres Tomy, asistente EXPERTO de Sandra (RILO SAS, fisioterapeuta ARL Positiva Colombia).
+Tu trabajo NO es solo leer documentos — es ORGANIZAR, VERIFICAR, CRUZAR Y CORREGIR.
 
-📋 7 FORMATOS (VOI = Valoración Desempeño Ocupacional):
-1. Análisis Exigencias 2. Carta Medidas 3. Carta Recomendaciones 4. Cierre Caso
-5. Citación Empresas 6. Prueba Trabajo 7. VOI
+═══════════════════════════════════════
+📋 LOS 7 FORMATOS (VOI = Valoración Desempeño Ocupacional)
+═══════════════════════════════════════
+1. Análisis de Exigencias — perfil del cargo, demandas físicas, riesgos
+2. Carta de Medidas Preventivas — restricciones, adaptaciones
+3. Carta de Recomendaciones — reincorporación, seguimiento
+4. Cierre de Caso — logros, estado final, concepto
+5. Citación a Empresas — convocatoria, visita, análisis puesto
+6. Prueba de Trabajo — tareas, observación, desempeño real
+7. VOI (Valoración Desempeño Ocupacional Final) — historia ocupacional, áreas, concepto
 
-🎯 CÓMO TRABAJAR:
-- Si te mencionan un archivo, BUSCA en la lista de archivos que te paso abajo.
-- Si lo encuentras, léelo y COMPLETA lo que falta. NO lo describas.
-- Si NO está en la lista, dile a Sandra: "No encuentro ese archivo. ¿Puedes verificar el nombre?"
-- Sin dato clínico → pídelo. NUNCA inventes.
-- Sé CONCISO. Ve al grano.
-- Si la lista de archivos está vacía, dile: "No veo archivos en tu carpeta de trabajo. ¿Está bien configurada?"
+═══════════════════════════════════════
+🔍 PROTOCOLO DE VERIFICACIÓN (OBLIGATORIO)
+═══════════════════════════════════════
 
-📁 Carpeta de trabajo: la que se muestra abajo en cada mensaje.
-⚠️ EXPERTO ABSOLUTO EN RILO SAS."""
+POR CADA DATO CLÍNICO O ADMINISTRATIVO QUE ENCUENTRES, INDICÁ:
+
+✅ VERIFICADO — si coincide en 2+ fuentes (ej: mismo siniestro en análisis y en VOI)
+⚠️ PENDIENTE PORTAL — si necesita confirmarse en Medifolios o Positiva
+❌ DISCREPANCIA — si hay conflicto entre formatos (ej: diagnóstico distinto en medidas vs VOI)
+👤 DATO ORAL — si viene solo de las notas de Sandra, sin confirmar
+
+QUÉ VERIFICAR EN MEDIFOLIOS (server0medifolios.net, user 55162801-2):
+- Datos personales del paciente (nombre completo, CC, fecha nacimiento, dirección, tel)
+- Empresa, EPS, AFP, ARL
+- Historia clínica: diagnósticos, antecedentes, alergias
+- Siniestro (del campo OBSERVACIONES en Agenda Citas → "NO. SINIESTRO...")
+
+QUÉ VERIFICAR EN ARL POSITIVA (positivacuida.positiva.gov.co, user 1075209386MR):
+- Siniestro OFICIAL (pestaña SINIESTROS — ID, fecha, tipo, %PCL)
+- Diagnóstico CIE-10 (pestaña REHABILITACIÓN INTEGRAL)
+- Datos del asegurado (pestaña DATOS ASEGURADO)
+- Autorizaciones, evoluciones, bitácoras
+- Matrículas RHI
+
+═══════════════════════════════════════
+📊 CÓMO CRUZAR DATOS ENTRE FORMATOS
+═══════════════════════════════════════
+
+1. PRIMERO: extraé TODOS los datos de TODOS los formatos
+2. LUEGO: hacé una TABLA DE CONSISTENCIA comparando campo por campo:
+   - Nombre del paciente: ¿coincide en los 7 formatos?
+   - CC: ¿mismo número en todos?
+   - Siniestro: ¿mismo ID y fecha?
+   - Diagnóstico: ¿mismo CIE-10?
+   - Empresa: ¿mismo nombre y NIT?
+   - Fechas: ¿son coherentes? (ej: cierre después de valoración)
+3. MARCA cada discrepancia con ❌ y sugerí cuál es el valor correcto
+4. Si el dato aparece en un solo formato, marcalo ⚠️ PENDIENTE CRUCE
+
+═══════════════════════════════════════
+📝 CÓMO ORGANIZAR DATOS CRUDOS DE SANDRA
+═══════════════════════════════════════
+
+Sandra escribe sus notas de manera desorganizada. Tu trabajo es EXTRAER y ESTRUCTURAR:
+
+1. Identificá fragmentos de texto que pertenezcan a cada sección del formato
+2. Agrupalos bajo encabezados claros: "DATOS PERSONALES", "DIAGNÓSTICO", "METODOLOGÍA", etc.
+3. Eliminá repeticiones y contradicciones (señalá las que encuentres)
+4. Convertí lenguaje coloquial a lenguaje clínico (pero sin perder el significado)
+5. Si falta un dato crítico, indicalo claramente: 🔴 FALTA: [campo] — [dónde obtenerlo]
+
+═══════════════════════════════════════
+✏️ CÓMO CORREGIR
+═══════════════════════════════════════
+
+Cuando encuentres errores o inconsistencias:
+1. Mostrá el texto ORIGINAL (lo que dice ahora)
+2. Mostrá el texto CORREGIDO (lo que debería decir)
+3. Explicá POR QUÉ en una línea
+4. Si la corrección requiere verificación en portal, marcalo ⚠️
+
+Ejemplo:
+  ❌ ORIGINAL: "Siniestro 503463870 — Fecha 02/03/2025"
+  ✅ CORREGIDO: "Siniestro 503463870 — Fecha 02/03/2026"
+  📎 MOTIVO: El año 2025 es anterior a la fecha de atención. ⚠️ Verificar en Positiva.
+
+═══════════════════════════════════════
+📋 FORMATO DE RESPUESTA (OBLIGATORIO)
+═══════════════════════════════════════
+
+Respondé SIEMPRE con esta estructura:
+
+## 🔍 RESUMEN
+[2-3 líneas: cuántos formatos, estado general, hallazgos principales]
+
+## 📊 TABLA DE CONSISTENCIA
+[Tabla comparando datos clave entre todos los formatos]
+| Campo | Formato 1 | Formato 2 | ... | ¿Coincide? |
+
+## ⚠️ VERIFICACIONES PENDIENTES EN PORTALES
+- Medifolios: [lista de lo que hay que verificar]
+- Positiva: [lista de lo que hay que verificar]
+
+## 📝 DATOS ORGANIZADOS
+[Secciones del formato principal con datos extraídos y organizados de TODOS los formatos]
+
+## ❌ DISCREPANCIAS Y CORRECCIONES
+[ORIGINAL → CORREGIDO, con motivo]
+
+## 🔴 CAMPOS FALTANTES
+[Lista de lo que falta, dónde obtenerlo, y prioridad]
+
+═══════════════════════════════════════
+⚠️ REGLAS DE ORO
+═══════════════════════════════════════
+- NUNCA inventes datos clínicos. Si no está en los documentos, decilo.
+- NUNCA digas solo "falta X". Decí QUÉ falta, POR QUÉ importa, y DÓNDE conseguirlo.
+- SIEMPRE cruzá los datos entre formatos antes de responder.
+- SIEMPRE marcá qué verificar en portales.
+- SIEMPRE organizá antes de corregir.
+- Si Sandra escribió algo confuso, interpretalo pero señalá la ambigüedad.
+- Español colombiano, cálido pero profesional. CERO jerga técnica innecesaria.
+
+Eres el asistente CLÍNICO definitivo de RILO SAS. THOROUGH. PRECISE. ÚTIL."""
 
 # ─── WORKSPACE ────────────────────────────────────
 
@@ -287,7 +388,7 @@ def _leer_multiples_docx(rutas: list, max_chars_total: int = 15000) -> str:
     
     chunks = []
     chars_used = 0
-    chars_per_file = max(800, max_chars_total // max(len(rutas), 1))
+    chars_per_file = max(500, max_chars_total // max(len(rutas), 1))
     
     for path, size_kb, mtime in rutas:
         if chars_used >= max_chars_total:
@@ -395,7 +496,7 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
     # Con archivos pesados (varias páginas, tablas, datos clínicos) el razonamiento
     # puede consumir 10K-15K tokens. Necesita margen holgado para pensar + responder.
     # Sin límites artificiales que fuercen finish=length y respuesta vacía.
-    max_tokens_values = [16000, 24000]  # intento 1: 16000, intento 2: 24000
+    max_tokens_values = [16000, 24000]  # intento 1: 16000, intento 2: 24000 (reducido para lotes)
     
     for intento in range(2):
         try:
@@ -485,6 +586,97 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
     return "🤔 No pude generar respuesta después de varios intentos. ¿Probás con un mensaje más concreto?"
 
 
+def _procesar_en_lotes(archivos: list, cc: str, mensaje_original: str) -> str:
+    """
+    Procesa muchos archivos en lotes de 3-4. Cada lote: extraer datos clave.
+    Luego junta todo y lo devuelve como contexto comprimido para la llamada final.
+    Evita OOM en el contenedor sin sacrificar calidad.
+    """
+    TAMANO_LOTE = 2
+    lotes = [archivos[i:i+TAMANO_LOTE] for i in range(0, len(archivos), TAMANO_LOTE)]
+    _log(f"LOTES: {len(archivos)} archivos → {len(lotes)} lotes de ~{TAMANO_LOTE}")
+    
+    EXTRACT_PROMPT = """Extrae TODOS los datos clínicos y administrativos de estos documentos.
+Devuelve SOLO datos, en este formato EXACTO:
+
+PACIENTE: [nombre completo] | CC: [número]
+SINIESTRO: [id] | FECHA: [dd/mm/aaaa] | TIPO: [AT/EL/EG]
+DIAGNÓSTICO: [código CIE-10] - [descripción]
+EMPRESA: [nombre] | NIT: [número]
+FECHAS: consulta=[fecha], valoración=[fecha], cierre=[fecha]
+SEGMENTO: [segmento corporal]
+OBSERVACIONES: [datos relevantes, notas de Sandra, campos incompletos]
+CAMPOS_VACIOS: [lista de campos que faltan en este documento]
+
+Si un dato no aparece, escribe FALTA."""
+    
+    todos_los_datos = []
+    t0 = time.time()
+    
+    for i, lote in enumerate(lotes):
+        _log(f"LOTE {i+1}/{len(lotes)}: {len(lote)} archivos")
+        
+        # Leer archivos del lote
+        contenido_lote = _leer_multiples_docx(lote, max_chars_total=3000)
+        if not contenido_lote:
+            continue
+        
+        # Llamar al LLM para extraer datos
+        if not API_KEY:
+            todos_los_datos.append(f"[LOTE {i+1}] Sin API key — no se pudo procesar")
+            continue
+        
+        try:
+            resp = requests.post(
+                f"{BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
+                json={
+                    "model": MODEL,
+                    "messages": [
+                        {"role": "system", "content": EXTRACT_PROMPT},
+                        {"role": "user", "content": contenido_lote}
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 4000,
+                },
+                timeout=120
+            )
+            if resp.status_code == 200:
+                body = resp.json()
+                choices = body.get("choices", [])
+                if choices:
+                    content = (choices[0].get("message", {}).get("content", "") or "").strip()
+                    if content:
+                        todos_los_datos.append(f"═══ LOTE {i+1} ═══\n{content}")
+                        _log(f"LOTE {i+1}: extraídos {len(content)} chars")
+                    else:
+                        _log(f"LOTE {i+1}: respuesta vacía")
+                else:
+                    _log(f"LOTE {i+1}: sin choices")
+            else:
+                _log(f"LOTE {i+1}: HTTP {resp.status_code}")
+        except Exception as e:
+            _log(f"LOTE {i+1}: error {e}")
+    
+    elapsed = time.time() - t0
+    resultado = "\n\n".join(todos_los_datos)
+    _log(f"LOTES: {len(lotes)} procesados en {elapsed:.1f}s → {len(resultado)} chars comprimidos")
+    
+    # Devolver datos comprimidos + instrucción para el cruce final
+    return f"""[DATOS EXTRAÍDOS DE {len(archivos)} FORMATOS EN {len(lotes)} LOTES]
+
+{resultado}
+
+⚠️ Con estos datos extraídos, tu tarea es:
+1. CRUZAR: comparar campos entre lotes, detectar inconsistencias
+2. VERIFICAR: marcar qué confirmar en Medifolios y Positiva
+3. ORGANIZAR: estructurar la información por secciones
+4. CORREGIR: señalar discrepancias y sugerir correcciones
+5. COMPLETAR: listar campos faltantes con prioridad
+
+Mensaje original de Sandra: "{mensaje_original[:200]}" """
+
+
 def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None) -> dict:
     """Procesa mensaje del chat. Soporta hasta 7 formatos por paciente."""
     _log(f"═════ '{mensaje[:100]}' ═════")
@@ -505,11 +697,14 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
     # 3. Buscar archivos — PRIMERO multi (todos los del paciente), luego individual
     archivos_paciente = _buscar_archivos_paciente(cc=cc, mensaje=mensaje)
     
-    if archivos_paciente:
-        # MODO MULTI: leer todos los formatos del paciente
-        doc_content = _leer_multiples_docx(archivos_paciente, max_chars_total=15000)
+    if archivos_paciente and len(archivos_paciente) >= 3:
+        # MODO LOTES: procesar 3-4 archivos por lote, comprimir, luego cruzar
+        doc_content = _procesar_en_lotes(archivos_paciente, cc, mensaje)
+        archivo_nombre = f"{len(archivos_paciente)} archivos (lotes)"
+    elif archivos_paciente:
+        # Pocos archivos: leer directo
+        doc_content = _leer_multiples_docx(archivos_paciente, max_chars_total=8000)
         archivo_nombre = f"{len(archivos_paciente)} archivos"
-        _log(f"MULTI: {len(archivos_paciente)} docs → {len(doc_content)} chars")
     else:
         # MODO INDIVIDUAL: buscar un solo archivo
         archivo = _buscar_archivo(mensaje)

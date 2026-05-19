@@ -32,9 +32,10 @@ except ImportError:
     print("⚠️  python-dotenv no instalado. Las variables de .env no se cargarán.")
     print("   pip install python-dotenv")
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+import shutil
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Cookie
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 app = FastAPI(title="RILO SAS API", version="1.0.0")
@@ -86,6 +87,9 @@ class ChatRequest(BaseModel):
 class GenerarRequest(BaseModel):
     estado_caso: Optional[str] = None
 
+
+class LoginRequest(BaseModel):
+    pin: str
 
 class OrganizarFormatoRequest(BaseModel):
     paciente_cc: str
@@ -777,3 +781,58 @@ async def endpoint_corregir(cc: str, req: CorregirRequest):
 
     resultado = aplicar_correccion(cc, correccion)
     return resultado
+
+
+# ─── Auth (opcional) ────────────────────────────────────────
+
+@app.post("/api/login")
+async def login(req: LoginRequest, response: Response):
+    from backend.auth_simple import validar_pin, generar_token
+    if not validar_pin(req.pin):
+        raise HTTPException(401, "PIN incorrecto")
+    token = generar_token("Sandra")
+    response.set_cookie("rilo_session", token, httponly=True, samesite="lax", max_age=86400 * 30)
+    return {"ok": True, "usuario": "Sandra"}
+
+
+@app.post("/api/logout")
+async def logout(response: Response):
+    response.delete_cookie("rilo_session")
+    return {"ok": True}
+
+
+@app.get("/api/whoami")
+async def whoami(rilo_session: Optional[str] = Cookie(None)):
+    from backend.auth_simple import validar_token
+    usuario = validar_token(rilo_session) if rilo_session else None
+    return {"autenticado": bool(usuario), "usuario": usuario}
+
+
+# ─── System Health ─────────────────────────────────────────
+
+@app.get("/api/system/health")
+def system_health():
+    """Estado del sistema completo."""
+    from backend.costos_tracker import resumen_dia
+
+    storage = Path(os.getenv("STORAGE_DIR", "./storage"))
+    disk = shutil.disk_usage(str(storage))
+
+    return {
+        "ok": True,
+        "fase_a_habilitada": os.getenv("FASE_A_ENABLED", "false").lower() == "true",
+        "tomy_completo_habilitado": os.getenv("TOMY_COMPLETO_ENABLED", "false").lower() == "true",
+        "disk": {
+            "total_gb": round(disk.total / 1024**3, 1),
+            "libre_gb": round(disk.free / 1024**3, 1),
+            "porcentaje_uso": round(100 * (disk.total - disk.free) / disk.total, 1),
+        },
+        "credenciales": {
+            "deepgram": bool(os.getenv("DEEPGRAM_API_KEY")),
+            "opencode_go": bool(os.getenv("OPENCODE_GO_API_KEY")),
+            "telegram": bool(os.getenv("TELEGRAM_BOT_TOKEN")),
+            "medifolios": bool(os.getenv("MEDIFOLIOS_USER")),
+            "positiva": bool(os.getenv("POSITIVA_USER")),
+        },
+        "costos_hoy": resumen_dia(),
+    }

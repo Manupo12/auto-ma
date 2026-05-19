@@ -7,6 +7,48 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+def test_endpoint_procesar_paciente_crea_task(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOMY_COMPLETO_ENABLED", "true")
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    monkeypatch.setenv("WORKFLOW_DB_PATH", str(tmp_path / "wf.db"))
+
+    from fastapi.testclient import TestClient
+    from backend.server import app
+
+    audio = tmp_path / "test.m4a"
+    audio.write_bytes(b"\x00" * 100)
+
+    client = TestClient(app)
+    with patch("backend.workflow_runner.ejecutar_workflow") as mock_wf:
+        mock_wf.return_value = {"task_id": "abc", "estado": "listo"}
+        resp = client.post(
+            "/api/procesar-paciente",
+            files={"audio": ("test.m4a", open(audio, "rb"), "audio/m4a")},
+            data={"paciente_cc": "1193143688"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["task_id"]
+
+
+def test_endpoint_estado_task_devuelve_progreso(tmp_path, monkeypatch):
+    monkeypatch.setenv("WORKFLOW_DB_PATH", str(tmp_path / "wf.db"))
+    from backend.task_db import TaskDB
+    db = TaskDB(str(tmp_path / "wf.db"))
+    tid = db.crear_task("123", "/tmp/a.m4a")
+    db.actualizar_paso(tid, paso=3, estado="leyendo_notas")
+
+    from fastapi.testclient import TestClient
+    from backend.server import app
+    resp = TestClient(app).get(f"/api/tasks/{tid}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["task"]["estado"] == "leyendo_notas"
+    assert data["task"]["paso_actual"] == 3
+
+
 def test_runner_ejecuta_los_9_pasos_en_orden(tmp_path, monkeypatch):
     monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
     monkeypatch.setenv("WORKFLOW_DB_PATH", str(tmp_path / "wf.db"))

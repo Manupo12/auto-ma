@@ -104,6 +104,15 @@ def _llamar_llm(messages: list, modelo: str, max_tokens: int) -> dict:
     choice = body.get("choices", [{}])[0]
     msg = choice.get("message", {})
     usage = body.get("usage", {})
+    try:
+        from backend.costos_tracker import registrar_uso
+        registrar_uso(modelo, {
+            "input": usage.get("prompt_tokens", 0),
+            "output": usage.get("completion_tokens", 0),
+            "reasoning": usage.get("reasoning_tokens", 0),
+        })
+    except Exception:
+        pass
     return {
         "content": (msg.get("content") or "").strip(),
         "reasoning": (msg.get("reasoning_content") or "").strip(),

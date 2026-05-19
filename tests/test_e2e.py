@@ -72,6 +72,56 @@ def test_chat_carga_datos_verificados_si_existen(tmp_path, monkeypatch):
 @pytest.mark.skipif(not os.getenv("OPENCODE_GO_API_KEY"), reason="needs OPENCODE_GO_API_KEY")
 @pytest.mark.live
 def test_e2e_oom_no_aparece_con_12_docs(tmp_path):
+    pass
+
+
+def test_e2e_workflow_completo_mockeado(tmp_path, monkeypatch):
+    from unittest.mock import patch, MagicMock, AsyncMock
+    monkeypatch.setenv("TOMY_COMPLETO_ENABLED", "true")
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path / "storage"))
+    monkeypatch.setenv("WORKFLOW_DB_PATH", str(tmp_path / "wf.db"))
+    monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path / "workspace"))
+    (tmp_path / "workspace").mkdir(exist_ok=True)
+    (tmp_path / "storage" / "data").mkdir(parents=True, exist_ok=True)
+
+    with patch("backend.flujo_audio.transcribir_audio") as m_trans, \
+         patch("backend.playwright_real.orquestador.extraer_paciente_completo", new_callable=AsyncMock) as m_pw, \
+         patch("backend.workflow_steps.generar_formatos.generar_documento") as m_gen, \
+         patch("backend.workflow_steps.transcribir._calcular_duracion_s") as m_dur, \
+         patch("backend.workflow_steps.qa_formatos._qa_script_path") as m_qa, \
+         patch("backend.workflow_steps.convertir_pdf._tiene_libreoffice") as m_libre, \
+         patch("backend.notificador.enviar_telegram") as m_tel, \
+         patch("backend.lote_worker._llamar_llm") as m_llm:
+
+        m_dur.return_value = 600.0
+        m_trans.return_value = {"texto": "Paciente dice que le duele.", "segmentos": [], "confianza": 0.9, "duracion": 600}
+        m_pw.return_value = {
+            "cc": "1193143688",
+            "medifolios": {"nombre1": "JUAN", "apellido1": "DURAN"},
+            "positiva": {"siniestros": [{"id": "503463870"}]},
+            "_meta": {"discrepancias": []},
+        }
+        m_qa.return_value = tmp_path / "noexiste.py"
+        m_libre.return_value = False
+        m_tel.return_value = True
+        m_gen.return_value = str(tmp_path / "fake.docx")
+        m_llm.return_value = {
+            "content": '```json\n{"paciente":{"documento":"1193143688","nombre":"JUAN"},"estado_caso":"SEGUIMIENTO","_meta":{"campos_faltantes":[]}}\n```',
+            "reasoning": "",
+            "finish": "stop",
+            "tokens": {"input": 100, "output": 50, "reasoning": 0, "total": 150},
+            "tiempo_s": 2.0,
+        }
+
+        audio = tmp_path / "test.m4a"
+        audio.write_bytes(b"\x00" * 100)
+
+        from backend.workflow_runner import ejecutar_workflow
+        resultado = ejecutar_workflow(audio_path=str(audio), paciente_cc="1193143688")
+
+    assert resultado["estado"] == "listo"
+    assert resultado["task_id"]
+    assert m_tel.called
     """12 docs simulados → procesamiento completo sin exit 137."""
     from backend.chat_handler import procesar_mensaje
     from docx import Document

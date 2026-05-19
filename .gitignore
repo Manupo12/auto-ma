@@ -47,3 +47,11 @@ storage/screenshots/
 __pycache__/
 .pytest_cache/
 *.pyc
+
+# Tomy Completo — workflow db, audios temp, backups, logs
+storage/workflow.db
+storage/workflow.db-journal
+storage/audit.log
+storage/audios_temp/
+storage/workflow_audios/
+storage/backups/

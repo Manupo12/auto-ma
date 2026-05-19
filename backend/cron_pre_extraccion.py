@@ -153,8 +153,20 @@ def iniciar_scheduler():
         misfire_grace_time=1800,
     )
 
+    scheduler.add_job(
+        ejecutar_backup_diario,
+        CronTrigger(hour=int(os.getenv("BACKUP_HORA", "23")), minute=0, timezone=COL),
+        id="backup_diario",
+        misfire_grace_time=3600,
+    )
+
     scheduler.start()
-    _log(f"SCHEDULER: iniciado. Noche a las {HORA_NOCHE}:00, matinal 06:30 COL")
+    _log(f"SCHEDULER: iniciado. Noche a las {HORA_NOCHE}:00, matinal 06:30, backup 23:00 COL")
+
+
+async def ejecutar_backup_diario():
+    from backend.backup_diario import ejecutar_backup
+    await ejecutar_backup()
 
 
 def obtener_estado() -> dict:

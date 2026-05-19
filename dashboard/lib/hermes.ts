@@ -34,6 +34,7 @@ export interface ChatMessage {
   rol: "usuario" | "asistente";
   contenido: string;
   timestamp: string;
+  archivo?: string;  // Nombre del archivo del workspace que Tomy encontró
 }
 
 // ── Pacientes ──────────────────────────────────────────────

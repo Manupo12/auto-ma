@@ -199,6 +199,7 @@ async def chat(req: ChatRequest):
     """
     Chat con Tomy — Motor IA REAL (DeepSeek v4).
     Misma conciencia que Telegram y CLI. Especialista absoluto en RILO SAS.
+    Ahora siempre conoce los archivos del workspace.
     """
     try:
         from backend.chat_handler import procesar_mensaje
@@ -208,6 +209,7 @@ async def chat(req: ChatRequest):
             "contenido": resultado["contenido"],
             "accion": resultado.get("accion"),
             "datos": resultado.get("datos"),
+            "archivo": resultado.get("archivo"),
         }
     except Exception as e:
         return {

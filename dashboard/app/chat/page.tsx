@@ -1,20 +1,50 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Loader2 } from "lucide-react";
+import { Send, Bot, User, Loader2, Trash2, FileText } from "lucide-react";
 import type { ChatMessage } from "@/lib/hermes";
 
+const STORAGE_KEY = "rilo-chat-messages";
+const MAX_MESSAGES = 50; // Keep last 50 messages in localStorage
+
+function loadMessages(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const msgs = JSON.parse(raw) as ChatMessage[];
+      return msgs.slice(-MAX_MESSAGES);
+    }
+  } catch {}
+  return [];
+}
+
+function saveMessages(msgs: ChatMessage[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs.slice(-MAX_MESSAGES)));
+  } catch {}
+}
+
 export default function ChatPage() {
-  const [mensajes, setMensajes] = useState<ChatMessage[]>([
-    {
+  const [mensajes, setMensajes] = useState<ChatMessage[]>(() => {
+    const saved = loadMessages();
+    if (saved.length > 0) return saved;
+    // Default welcome message
+    const welcome: ChatMessage = {
       rol: "asistente",
-      contenido: "¡Hola Sandra! Soy Tomy. Puedes chatear conmigo para buscar pacientes, revisar formatos, o corregir documentos. ¿En qué te ayudo?",
+      contenido:
+        "¡Hola Sandra! Soy Tomy. Puedes chatear conmigo para buscar pacientes, revisar formatos, o corregir documentos. ¿En qué te ayudo?",
       timestamp: new Date().toISOString(),
-    },
-  ]);
+    };
+    return [welcome];
+  });
   const [input, setInput] = useState("");
   const [enviando, setEnviando] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Save to localStorage on every change
+  useEffect(() => {
+    saveMessages(mensajes);
+  }, [mensajes]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -32,48 +62,83 @@ export default function ChatPage() {
       contenido: mensaje,
       timestamp: new Date().toISOString(),
     };
-    setMensajes((prev) => [...prev, userMsg]);
+    const updatedMensajes = [...mensajes, userMsg];
+    setMensajes(updatedMensajes);
 
     try {
       const res = await fetch("http://localhost:8000/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          mensaje, 
+        body: JSON.stringify({
+          mensaje,
           paciente_cc: undefined,
-          historial: mensajes.slice(-10), // Últimos 10 mensajes para contexto
+          historial: updatedMensajes.slice(-10), // Últimos 10 mensajes para contexto
         }),
       });
 
       let respuesta: string;
+      let archivo_encontrado: string | null = null;
+
       if (res.ok) {
         const data = await res.json();
         respuesta = data.contenido ?? data.respuesta ?? JSON.stringify(data);
+        archivo_encontrado = data.archivo ?? null;
       } else {
-        respuesta = "❌ El servidor no está disponible en este momento. Intenta de nuevo.";
+        respuesta =
+          "❌ El servidor no está disponible en este momento. Intenta de nuevo.";
       }
 
       const assistantMsg: ChatMessage = {
         rol: "asistente",
         contenido: respuesta,
         timestamp: new Date().toISOString(),
+        archivo: archivo_encontrado || undefined,
       };
       setMensajes((prev) => [...prev, assistantMsg]);
     } catch {
       setMensajes((prev) => [
         ...prev,
-        { rol: "asistente", contenido: "❌ Error al conectar con el asistente. Intenta de nuevo.", timestamp: new Date().toISOString() },
+        {
+          rol: "asistente",
+          contenido:
+            "❌ Error al conectar con el asistente. Intenta de nuevo.",
+          timestamp: new Date().toISOString(),
+        },
       ]);
     } finally {
       setEnviando(false);
     }
   };
 
+  const limpiarChat = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setMensajes([
+      {
+        rol: "asistente",
+        contenido:
+          "¡Chat limpio! ¿En qué te ayudo, Sandra?",
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  };
+
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] animate-fadeIn">
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-slate-800">Chat con Tomy</h1>
-        <p className="text-slate-500 mt-1">Corrige documentos, busca pacientes, genera formatos</p>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Chat con Tomy</h1>
+          <p className="text-slate-500 mt-1">
+            Corrige documentos, busca pacientes, genera formatos
+          </p>
+        </div>
+        <button
+          onClick={limpiarChat}
+          className="flex items-center gap-1 px-3 py-2 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+          title="Limpiar conversación"
+        >
+          <Trash2 size={14} />
+          Limpiar
+        </button>
       </div>
 
       {/* Chat area */}
@@ -98,8 +163,21 @@ export default function ChatPage() {
                 }`}
               >
                 <p className="whitespace-pre-wrap">{msg.contenido}</p>
-                <p className={`text-xs mt-1 ${msg.rol === "usuario" ? "text-blue-200" : "text-slate-400"}`}>
-                  {new Date(msg.timestamp).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
+                {msg.archivo && (
+                  <p className="text-xs mt-1 text-blue-500 flex items-center gap-1">
+                    <FileText size={10} />
+                    {msg.archivo}
+                  </p>
+                )}
+                <p
+                  className={`text-xs mt-1 ${
+                    msg.rol === "usuario" ? "text-blue-200" : "text-slate-400"
+                  }`}
+                >
+                  {new Date(msg.timestamp).toLocaleTimeString("es-CO", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </p>
               </div>
               {msg.rol === "usuario" && (

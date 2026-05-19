@@ -40,3 +40,10 @@ docker-compose.override.yml
 
 # NOTA: storage/ YA NO está excluido — los docs, data, reports y templates
 # son parte del contexto del sistema y Claude Code los necesita.
+
+# Fase A — sesiones browser y evidencia
+storage/playwright_sessions/
+storage/screenshots/
+__pycache__/
+.pytest_cache/
+*.pyc

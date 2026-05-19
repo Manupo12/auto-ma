@@ -1,0 +1,31 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 VALIDACIÓN JSON PRE-GENERACIÓN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Valoración del Desempeño Ocupacional Final (Formato 7)
+   REQUERIDOS: 8/8 (100%)
+   RECOMENDADOS: 27/46 (58%)
+   DEFAULTS APLICADOS: 3
+   OPCIONALES: 2/4 presentes
+   ⚠️  ADVERTENCIAS: 19 campo(s) auto-completados con [VERIFICAR]
+
+✅ Carta de Medidas Preventivas (Formato 2)
+   REQUERIDOS: 8/8 (100%)
+   RECOMENDADOS: 5/9 (55%)
+   DEFAULTS APLICADOS: 2
+   OPCIONALES: 3/5 presentes
+   ⚠️  ADVERTENCIAS: 4 campo(s) auto-completados con [VERIFICAR]
+
+❌ BLOQUEADO Carta de Recomendaciones / Reincorporación Laboral (Formato 3)
+   REQUERIDOS: 8/10 (80%)
+   RECOMENDADOS: 3/11 (27%)
+   DEFAULTS APLICADOS: 2
+   OPCIONALES: 0/2 presentes
+   ❌ ERRORES BLOQUEANTES:
+      ❌ REQUERIDO: 'siniestro.tipo' está vacío o ausente
+      ❌ REQUERIDO: 'siniestro.segmento_lesionado' está vacío o ausente
+   ⚠️  ADVERTENCIAS: 8 campo(s) auto-completados con [VERIFICAR]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Total: 2/3 formatos pueden generarse
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

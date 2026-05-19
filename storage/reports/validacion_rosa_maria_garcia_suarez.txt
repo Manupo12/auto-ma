@@ -1,0 +1,26 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 VALIDACIÓN JSON PRE-GENERACIÓN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Citación de Empresas (Formato 5)
+   REQUERIDOS: 10/10 (100%)
+   RECOMENDADOS: 8/8 (100%)
+   DEFAULTS APLICADOS: 2
+
+✅ Análisis de Exigencias / Homologación (Formato 1)
+   REQUERIDOS: 8/8 (100%)
+   RECOMENDADOS: 29/36 (80%)
+   DEFAULTS APLICADOS: 2
+   OPCIONALES: 2/9 presentes
+   ⚠️  ADVERTENCIAS: 7 campo(s) auto-completados con [VERIFICAR]
+
+✅ Carta de Medidas Preventivas (Formato 2)
+   REQUERIDOS: 8/8 (100%)
+   RECOMENDADOS: 5/9 (55%)
+   DEFAULTS APLICADOS: 1
+   OPCIONALES: 4/5 presentes
+   ⚠️  ADVERTENCIAS: 4 campo(s) auto-completados con [VERIFICAR]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Total: 3/3 formatos pueden generarse
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

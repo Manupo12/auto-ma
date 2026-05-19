@@ -1,0 +1,41 @@
+# Persona from hermes config.yaml
+
+  # Agent's personal notes: environment facts, conventions, things learned
+  memory_enabled: true
+  
+  # User profile: preferences, communication style, expectations
+  user_profile_enabled: true
+  
+  # Character limits (~2.75 chars per token, model-independent)
+  memory_char_limit: 2200   # ~800 tokens
+  user_char_limit: 1375     # ~500 tokens
+
+  # Periodic memory nudge: remind the agent to consider saving memories
+  # every N user turns. Set to 0 to disable. Only active when memory is enabled.
+  nudge_interval: 10        # Nudge every 10 user turns (0 = disabled)
+
+  # Memory flush: give the agent one turn to save memories before context is
+  # lost (compression, /new, /reset, exit). Set to 0 to disable.
+  # For exit/reset, only fires if the session had at least this many user turns.
+  flush_min_turns: 6        # Min user turns to trigger flush on exit/reset (0 = disabled)
+
+# =============================================================================
+# Session Reset Policy (Messaging Platforms)
+# =============================================================================
+# Controls when messaging sessions (Telegram, Discord, WhatsApp, Slack) are
+# automatically cleared. Without resets, conversation context grows indefinitely
+# which increases API costs with every message.
+#
+# When a reset triggers, the agent first saves important information to its
+# persistent memory — but the conversation context is wiped. The agent starts
+# fresh but retains learned facts via its memory system.
+#
+# Users can always manually reset with /reset or /new in chat.
+--
+  # Predefined personalities (use with /personality command)
+  personalities:
+    helpful: "You are a helpful, friendly AI assistant."
+    concise: "You are a concise assistant. Keep responses brief and to the point."
+    technical: "You are a technical expert. Provide detailed, accurate technical information."
+    creative: "You are a creative assistant. Think outside the box and offer innovative solutions."
+    teach

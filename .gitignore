@@ -15,23 +15,11 @@ node_modules/
 .next/
 out/
 
-# Archivos generados
-storage/output/*.docx
-storage/logs/*.log
-*.tmp
-
-# Sistema operativo
-.DS_Store
-Thumbs.db
-
-# Docker
-docker-compose.override.yml
+# Logs (datos sensibles de pacientes)
+storage/logs/
 
 # Base de datos con datos de pacientes
 *.db
-
-# Datos generados y logs
-storage/
 
 # browser-use es un proyecto externo (clonado)
 browser-use/
@@ -42,3 +30,13 @@ frontend/
 # Archivos grandes de informe (auditoría)
 INFORME_COMPLETO_SISTEMA*.md
 AUDITORIA_INSTRUCCIONES.md
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# NOTA: storage/ YA NO está excluido — los docs, data, reports y templates
+# son parte del contexto del sistema y Claude Code los necesita.

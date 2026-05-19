@@ -76,7 +76,7 @@ export default function ChatPage() {
           historial: updatedMensajes.slice(-10),
         }),
         // No timeout infinito — si tarda >45s, el navegador aborta
-        signal: AbortSignal.timeout(180000),
+        signal: AbortSignal.timeout(300000),
       });
 
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
@@ -119,7 +119,7 @@ export default function ChatPage() {
       let errorMsg = "❌ No se pudo conectar con el servidor.";
       
       if (err instanceof DOMException && err.name === "AbortError") {
-        errorMsg = `⏰ La solicitud tardó más de 50 segundos y fue cancelada. El servidor puede estar sobrecargado.`;
+        errorMsg = `⏰ La solicitud tardó más de 5 minutos. El servidor puede estar procesando un archivo muy pesado.`;
       } else if (err instanceof TypeError && err.message.includes("fetch")) {
         errorMsg = "❌ No se pudo conectar con el backend. ¿Está corriendo en http://localhost:8000?";
       } else if (err instanceof Error) {

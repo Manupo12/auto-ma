@@ -234,8 +234,8 @@ def _leer_docx(ruta: Path) -> str:
         
         lines = [f"📄 {ruta.name} | {len(doc.paragraphs)} párrafos, {len(doc.tables)} tablas\n"]
         
-        # Párrafos con estructura
-        for p in doc.paragraphs[:30]:
+        # Párrafos con estructura (más para docs pesados de varias páginas)
+        for p in doc.paragraphs[:60]:
             t = p.text.strip()
             if not t: continue
             if re.match(r'^\d+[\.\)]\s', t):
@@ -245,15 +245,15 @@ def _leer_docx(ruta: Path) -> str:
             else:
                 lines.append(f"  {t[:150]}")
         
-        # Tablas (primeras 5 filas de c/u, máx 3 tablas)
-        for ti, tabla in enumerate(doc.tables[:3]):
+        # Tablas (primeras 8 filas de c/u, máx 5 tablas)
+        for ti, tabla in enumerate(doc.tables[:5]):
             lines.append(f"\n📊 Tabla {ti+1}:")
             for ri, row in enumerate(tabla.rows[:5]):
                 cells = [cell.text.strip()[:50] for cell in row.cells[:6] if cell.text.strip()]
                 if cells:
                     lines.append(f"  {' | '.join(cells)}")
         
-        result = "\n".join(lines)[:3500]
+        result = "\n".join(lines)[:6000]
         _log(f"LEER: {len(result)} chars total en {time.time()-t0:.1f}s")
         return result
     
@@ -291,9 +291,11 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
     _log(f"LLM: {total_chars} chars → {MODEL}")
     t0 = time.time()
 
-    # DeepSeek v4 es modelo de razonamiento — necesita espacio para pensar Y responder.
-    # Sin límites artificiales: 8000 tokens da margen para razonamiento (~2000) + respuesta (~6000).
-    max_tokens_values = [8000, 12000]  # intento 1: 8000, intento 2: 12000
+    # DeepSeek v4 es modelo de razonamiento — PIENSA antes de responder.
+    # Con archivos pesados (varias páginas, tablas, datos clínicos) el razonamiento
+    # puede consumir 10K-15K tokens. Necesita margen holgado para pensar + responder.
+    # Sin límites artificiales que fuercen finish=length y respuesta vacía.
+    max_tokens_values = [16000, 24000]  # intento 1: 16000, intento 2: 24000
     
     for intento in range(2):
         try:
@@ -311,7 +313,7 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
                     "temperature": 0.7,
                     "max_tokens": max_tok,
                 },
-                timeout=180
+                timeout=300
             )
             elapsed = time.time() - t0
             usage_info = ""

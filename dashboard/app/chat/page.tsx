@@ -55,6 +55,7 @@ export default function ChatPage() {
     const mensaje = input.trim();
     setInput("");
     setEnviando(true);
+    const t0 = Date.now();
 
     // Agregar mensaje del usuario
     const userMsg: ChatMessage = {
@@ -72,20 +73,38 @@ export default function ChatPage() {
         body: JSON.stringify({
           mensaje,
           paciente_cc: undefined,
-          historial: updatedMensajes.slice(-10), // Últimos 10 mensajes para contexto
+          historial: updatedMensajes.slice(-10),
         }),
+        // No timeout infinito — si tarda >45s, el navegador aborta
+        signal: AbortSignal.timeout(50000),
       });
 
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
       let respuesta: string;
       let archivo_encontrado: string | null = null;
+      let workspaceOk: boolean | null = null;
 
       if (res.ok) {
         const data = await res.json();
-        respuesta = data.contenido ?? data.respuesta ?? JSON.stringify(data);
+        respuesta = data.contenido ?? data.respuesta ?? "";
         archivo_encontrado = data.archivo ?? null;
+        workspaceOk = data.workspace_accesible ?? null;
+        
+        // Si respuesta vacía, mostrar mensaje de diagnóstico
+        if (!respuesta || respuesta.trim() === "") {
+          respuesta = "🤔 Tomy no pudo generar una respuesta (respuesta vacía).\n\n"
+            + (workspaceOk === false 
+              ? "⚠️ Tu carpeta de trabajo no es accesible. Revisá WORKSPACE_DIR en .env"
+              : "💡 Intentá ser más específico o probá con otro mensaje.");
+        }
+        
+        // Agregar info de debug sutil
+        if (workspaceOk === false) {
+          respuesta += "\n\n⚠️ No veo tu carpeta de trabajo.";
+        }
       } else {
-        respuesta =
-          "❌ El servidor no está disponible en este momento. Intenta de nuevo.";
+        const errorText = await res.text().catch(() => "");
+        respuesta = `❌ Error del servidor (HTTP ${res.status}). ${errorText.slice(0, 200)}`;
       }
 
       const assistantMsg: ChatMessage = {
@@ -95,13 +114,23 @@ export default function ChatPage() {
         archivo: archivo_encontrado || undefined,
       };
       setMensajes((prev) => [...prev, assistantMsg]);
-    } catch {
+    } catch (err: unknown) {
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+      let errorMsg = "❌ No se pudo conectar con el servidor.";
+      
+      if (err instanceof DOMException && err.name === "AbortError") {
+        errorMsg = `⏰ La solicitud tardó más de 50 segundos y fue cancelada. El servidor puede estar sobrecargado.`;
+      } else if (err instanceof TypeError && err.message.includes("fetch")) {
+        errorMsg = "❌ No se pudo conectar con el backend. ¿Está corriendo en http://localhost:8000?";
+      } else if (err instanceof Error) {
+        errorMsg = `❌ Error: ${err.message.slice(0, 200)}`;
+      }
+      
       setMensajes((prev) => [
         ...prev,
         {
           rol: "asistente",
-          contenido:
-            "❌ Error al conectar con el asistente. Intenta de nuevo.",
+          contenido: errorMsg,
           timestamp: new Date().toISOString(),
         },
       ]);

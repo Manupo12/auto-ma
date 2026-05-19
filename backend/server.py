@@ -498,6 +498,22 @@ def buscar_paciente_agenda(q: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Diagnóstico del workspace ──────────────────────────────────────
+
+@app.get("/api/workspace")
+def diagnosticar_workspace():
+    """
+    Diagnóstico del workspace: qué archivos ve Tomy, si la carpeta existe, etc.
+    Útil para debuguear cuando el chat "no responde".
+    """
+    try:
+        from backend.chat_handler import diagnosticar_workspace
+        info = diagnosticar_workspace()
+        return {"ok": True, **info}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # ── Verificación de portales ──────────────────────────────────────
 
 @app.get("/api/verificar/{cc}")

@@ -206,8 +206,108 @@ def _buscar_archivo(mensaje: str) -> Optional[Path]:
     return None
 
 
+def _buscar_archivos_paciente(cc: str = "", nombre: str = "", mensaje: str = "") -> list:
+    """
+    Busca TODOS los archivos de un paciente por CC, nombre, o detectando
+    intención de "todos los formatos" en el mensaje.
+    Retorna lista de (Path, tamaño_kb, mtime) ordenados por tipo de formato.
+    """
+    ws = _get_active_workspace()
+    if not ws.exists():
+        return []
+    
+    entries = _fast_scandir(ws, max_depth=3, timeout=4.0)
+    archivos = [(p, s, m) for p, is_dir, s, m in entries if not is_dir and p.suffix.lower() == '.docx']
+    
+    if not archivos:
+        return []
+    
+    ml = mensaje.lower()
+    
+    # Detectar si el usuario quiere TODOS los formatos
+    quiere_todos = any(kw in ml for kw in [
+        "todos los formatos", "todos los documentos", "los 7 formatos",
+        "todos los archivos", "completos", "todos los del paciente",
+        "revisa todos", "revisame todos", "organiza todos", "verifica todos"
+    ])
+    
+    # Buscar por CC
+    if cc:
+        matches = [(p, s, m) for p, s, m in archivos if cc in p.stem]
+        if matches:
+            _log(f"MULTI: {len(matches)} archivos para CC {cc}")
+            return sorted(matches, key=lambda x: x[0].stem)
+    
+    # Buscar por nombre de paciente
+    if nombre:
+        nombre_lower = nombre.lower()
+        matches = [(p, s, m) for p, s, m in archivos if nombre_lower in p.stem.lower()]
+        if matches:
+            _log(f"MULTI: {len(matches)} archivos para '{nombre}'")
+            return sorted(matches, key=lambda x: x[0].stem)
+    
+    # Extraer CC del mensaje (mantener espacios para word boundaries)
+    m_cc = re.search(r'\b(\d{6,12})\b', mensaje.replace("'", "").replace(".", "").replace(",", ""))
+    if m_cc:
+        cc_found = m_cc.group(1)
+        matches = [(p, s, m) for p, s, m in archivos if cc_found in p.stem]
+        if matches and (quiere_todos or len(matches) >= 3):
+            _log(f"MULTI: {len(matches)} archivos para CC {cc_found}")
+            return sorted(matches, key=lambda x: x[0].stem)
+    
+    # Si quiere todos pero sin CC, buscar por palabras del nombre
+    if quiere_todos:
+        palabras = set(re.findall(r'[a-záéíóúñ]{4,}', ml))
+        # Agrupar archivos que comparten CC o nombre
+        for p, s, m in archivos:
+            if palabras & set(re.findall(r'[a-záéíóúñ]{4,}', p.stem.lower())):
+                # Encontrar el grupo: todos los archivos con mismo prefijo (CC)
+                cc_match = re.search(r'(\d{6,12})', p.stem)
+                if cc_match:
+                    cc_group = cc_match.group(1)
+                    matches = [(p2, s2, m2) for p2, s2, m2 in archivos if cc_group in p2.stem]
+                    if len(matches) >= 3:
+                        _log(f"MULTI: {len(matches)} archivos agrupados por CC {cc_group}")
+                        return sorted(matches, key=lambda x: x[0].stem)
+                break
+    
+    return []
+
+
+def _leer_multiples_docx(rutas: list, max_chars_total: int = 15000) -> str:
+    """
+    Lee múltiples archivos .docx con límite de chars total.
+    Cada archivo: versión resumida (~1500 chars c/u para que quepan 7+).
+    """
+    if not rutas:
+        return ""
+    
+    _log(f"MULTI-LEER: {len(rutas)} archivos, límite {max_chars_total} chars")
+    t0 = time.time()
+    
+    chunks = []
+    chars_used = 0
+    chars_per_file = max(800, max_chars_total // max(len(rutas), 1))
+    
+    for path, size_kb, mtime in rutas:
+        if chars_used >= max_chars_total:
+            _log(f"MULTI-LEER: límite alcanzado tras {len(chunks)} archivos")
+            break
+        
+        content = _leer_docx(path)
+        if content:
+            # Truncar cada archivo a su cuota
+            truncated = content[:chars_per_file]
+            chunks.append(truncated)
+            chars_used += len(truncated)
+    
+    result = f"📚 {len(chunks)} documentos del paciente:\n\n" + "\n\n---\n\n".join(chunks)
+    _log(f"MULTI-LEER: {len(chunks)} archivos, {chars_used} chars en {time.time()-t0:.1f}s")
+    return result
+
+
 def _leer_docx(ruta: Path) -> str:
-    """Lee .docx rápido, primeras 25 líneas + 3 tablas."""
+    """Lee .docx rápido, primeras 60 líneas + 5 tablas."""
     _log(f"LEER: {ruta.name}...")
     t0 = time.time()
     
@@ -386,7 +486,7 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
 
 
 def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None) -> dict:
-    """Procesa mensaje del chat. Robusto, nunca cuelga."""
+    """Procesa mensaje del chat. Soporta hasta 7 formatos por paciente."""
     _log(f"═════ '{mensaje[:100]}' ═════")
     t_total = time.time()
 
@@ -396,25 +496,32 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
     # 1. Workspace (siempre, rápido)
     workspace_files = _listar_workspace()
 
-    # 2. Buscar archivo mencionado
-    archivo = _buscar_archivo(mensaje)
-    doc_content = _leer_docx(archivo) if archivo else ""
-
-    # 3. Detectar CC
+    # 2. Detectar CC (sin limpiar espacios — mantener word boundaries)
     cc = paciente_cc
     if not cc:
-        # Limpiar formato colombiano: 12'130.558 → 12130558
-        limpio = mensaje.replace("'", "").replace(".", "").replace(",", "").replace(" ", "")
-        m = re.search(r'\b(\d{6,12})\b', limpio)
+        m = re.search(r'\b(\d{6,12})\b', mensaje.replace("'", "").replace(".", "").replace(",", ""))
         if m: cc = m.group(1)
 
-    # 4. Llamar LLM
+    # 3. Buscar archivos — PRIMERO multi (todos los del paciente), luego individual
+    archivos_paciente = _buscar_archivos_paciente(cc=cc, mensaje=mensaje)
+    
+    if archivos_paciente:
+        # MODO MULTI: leer todos los formatos del paciente
+        doc_content = _leer_multiples_docx(archivos_paciente, max_chars_total=15000)
+        archivo_nombre = f"{len(archivos_paciente)} archivos"
+        _log(f"MULTI: {len(archivos_paciente)} docs → {len(doc_content)} chars")
+    else:
+        # MODO INDIVIDUAL: buscar un solo archivo
+        archivo = _buscar_archivo(mensaje)
+        doc_content = _leer_docx(archivo) if archivo else ""
+        archivo_nombre = archivo.name if archivo else None
+
+    # 4. Llamar LLM con todo el contexto
     respuesta = _llamar_llm(mensaje, cc, doc_content, workspace_files)
     
     total_time = time.time() - t_total
     _log(f"═════ Listo en {total_time:.1f}s ═════")
 
-    archivo_nombre = archivo.name if archivo else None
     return {
         "contenido": respuesta,
         "accion": "documento" if doc_content else None,

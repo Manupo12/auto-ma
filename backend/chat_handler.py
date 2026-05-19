@@ -9,7 +9,7 @@ Arreglos de raíz (Mayo 2026):
 - Timeouts agresivos en todas las operaciones de archivo
 - Endpoint /api/workspace para diagnóstico
 """
-import os, json, re, requests, time, sys, traceback
+import os, json, re, requests, time, sys, traceback, subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
@@ -586,6 +586,67 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
     return "🤔 No pude generar respuesta después de varios intentos. ¿Probás con un mensaje más concreto?"
 
 
+def _procesar_via_workers(archivos: list, cc: str) -> str:
+    """
+    Reemplazo de _procesar_en_lotes que aísla cada llamada LLM en subprocess.
+
+    Cada subprocess procesa 1 archivo, imprime JSON con datos extraídos, muere.
+    El OS libera la RAM del reasoning_content de DeepSeek al terminar el proceso.
+
+    Para extracción usa LLM_MODEL_EXTRACCION (deepseek-v4-flash por defecto, sin razonamiento).
+    Los resultados se concatenan y se devuelven como string para inyectar al contexto.
+    """
+    modelo_extraccion = os.getenv("LLM_MODEL_EXTRACCION", "deepseek-v4-flash")
+    _log(f"WORKERS: {len(archivos)} archivos con modelo={modelo_extraccion}")
+    t0 = time.time()
+
+    todos_datos = []
+    for i, (path, size_kb, mtime) in enumerate(archivos):
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "backend.lote_worker",
+                 "--tipo", "extraer",
+                 "--archivos", str(path),
+                 "--modelo", modelo_extraccion,
+                 "--cc", cc],
+                capture_output=True, text=True, timeout=180,
+                cwd=str(Path(__file__).parent.parent),
+            )
+            if proc.returncode == 0 and proc.stdout:
+                resultado = json.loads(proc.stdout)
+                if resultado.get("ok") and resultado.get("datos_raw"):
+                    todos_datos.append(
+                        f"═══ DOC {i+1}/{len(archivos)} ({path.name}) ═══\n"
+                        f"{resultado['datos_raw']}"
+                    )
+                    tokens = resultado.get("tokens", {})
+                    _log(f"WORKER {i+1}: {tokens.get('total', '?')}t en {resultado.get('tiempo_s', '?')}s")
+            else:
+                _log(f"WORKER {i+1}: FAILED exit={proc.returncode} stderr={proc.stderr[:200]}")
+                todos_datos.append(f"═══ DOC {i+1} ({path.name}) ═══\n[ERROR de extracción]")
+        except subprocess.TimeoutExpired:
+            _log(f"WORKER {i+1}: TIMEOUT")
+            todos_datos.append(f"═══ DOC {i+1} ({path.name}) ═══\n[TIMEOUT]")
+        except Exception as e:
+            _log(f"WORKER {i+1}: {type(e).__name__}: {e}")
+            todos_datos.append(f"═══ DOC {i+1} ({path.name}) ═══\n[{type(e).__name__}]")
+
+    elapsed = time.time() - t0
+    resultado_str = "\n\n".join(todos_datos)
+    _log(f"WORKERS: {len(archivos)} procesados en {elapsed:.1f}s → {len(resultado_str)} chars")
+
+    return f"""[DATOS EXTRAÍDOS DE {len(archivos)} FORMATOS POR WORKERS AISLADOS]
+
+{resultado_str}
+
+⚠️ Tu tarea con estos datos:
+1. CRUZAR campos entre documentos, detectar inconsistencias
+2. VERIFICAR contra portales (marcar ✅/⚠️/❌)
+3. ORGANIZAR información por secciones
+4. CORREGIR discrepancias detectadas
+5. COMPLETAR campos faltantes con prioridad"""
+
+
 def _procesar_en_lotes(archivos: list, cc: str, mensaje_original: str) -> str:
     """
     Procesa muchos archivos en lotes de 3-4. Cada lote: extraer datos clave.
@@ -698,9 +759,13 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
     archivos_paciente = _buscar_archivos_paciente(cc=cc, mensaje=mensaje)
     
     if archivos_paciente and len(archivos_paciente) >= 3:
-        # MODO LOTES: procesar 3-4 archivos por lote, comprimir, luego cruzar
-        doc_content = _procesar_en_lotes(archivos_paciente, cc, mensaje)
-        archivo_nombre = f"{len(archivos_paciente)} archivos (lotes)"
+        # MODO WORKERS (Fase A) o LOTES (legacy)
+        if os.getenv("FASE_A_ENABLED", "false").lower() == "true":
+            doc_content = _procesar_via_workers(archivos_paciente, cc)
+            archivo_nombre = f"{len(archivos_paciente)} archivos (workers)"
+        else:
+            doc_content = _procesar_en_lotes(archivos_paciente, cc, mensaje)
+            archivo_nombre = f"{len(archivos_paciente)} archivos (lotes-legacy)"
     elif archivos_paciente:
         # Pocos archivos: leer directo
         doc_content = _leer_multiples_docx(archivos_paciente, max_chars_total=8000)

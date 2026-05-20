@@ -707,6 +707,23 @@ Estos bugs fueron reportados al revisar el documento generado (msg 48 Telegram) 
 - **Seguimiento:** Valoración Desempeño → Carta Recomendaciones
 - **Cierre:** Valoración Desempeño Final → Cierre de Caso → Carta Recomendaciones
 
+## Tomy Completo (Mayo 2026) — Integración con el pipeline
+
+### Paso 6 del workflow: `workflow_steps/generar_formatos.py`
+Este skill es llamado por el wrapper `backend/workflow_steps/generar_formatos.py` (Paso 6 del pipeline de 9 pasos). El wrapper:
+1. Recibe el JSON maestro sintetizado del Paso 5
+2. Selecciona formatos aplicables según estado del caso (via `format_selector.py`)
+3. Llama a `doc_generator.generar_*()` para cada formato
+4. Guarda DOCX en `storage/docs/`
+5. Pasa los paths al siguiente paso (qa_formatos)
+
+### Organizador de formatos crudos: `backend/organizador_formato.py`
+Caso alterno: Sandra tiene un DOCX antiguo con info incompleta/desordenada.
+- **Endpoint**: `POST /api/organizar-formato` — recibe DOCX + CC
+- **Lógica**: Lee DOCX, detecta campos vacíos vs llenos vs contradictorios, cruza con datos verificados de portales, reescribe limpio
+- **Acceso chat**: Comando "organiza este formato {nombre}" → detecta intención y delega al endpoint
+- **Modelo**: `deepseek-v4-pro` (requiere razonamiento para reorganizar contexto)
+
 ## Nomenclatura de archivos
 `[tipo]-[documento-paciente]-[fecha].docx` / `.pdf`
 Ejemplo: `analisis-123456789-2026-05-09.docx`

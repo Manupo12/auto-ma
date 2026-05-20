@@ -333,6 +333,59 @@ bash ~/sync-to-wsl.sh
 
 Los servicios con `--reload` detectan cambios automáticamente. Si no, reiniciar.
 
+## Tomy Completo (Mayo 2026) — Variables de entorno y rollout
+
+### Feature flag maestro
+```bash
+TOMY_COMPLETO_ENABLED=false   # ← OFF por default (seguro). Poner true para activar pipeline.
+```
+
+Controla TODO el pipeline nuevo: workflow_runner, 9 pasos, task_db, dashboard /hoy, auth, backup, costos.
+Si está `false`, el sistema se comporta exactamente como antes (modo legacy, sin riesgo).
+
+### Variables nuevas (agregadas en Mayo 2026)
+
+| Variable | Default | Uso |
+|---|---|---|
+| `TOMY_COMPLETO_ENABLED` | `false` | Feature flag maestro del pipeline |
+| `WORKFLOW_DB_PATH` | `./storage/workflow.db` | SQLite para workflow_tasks |
+| `WORKFLOW_TIMEOUT_TOTAL_S` | `1800` | Timeout máximo por paciente (30 min) |
+| `AUDIO_CHUNK_DURATION_S` | `1500` | Duración de chunks para audios largos (25 min) |
+| `AUDIO_TEMP_DIR` | `./storage/audios_temp` | Chunks temporales de ffmpeg |
+| `AUTH_PIN` | `1234` | PIN de 4 dígitos para el dashboard |
+| `AUTH_SECRET` | (cambiar en prod) | Secreto HMAC para cookies de sesión |
+| `BACKUP_HORA` | `23` | Hora del backup diario (formato 24h) |
+| `BACKUP_DESTINO` | `./storage/backups` | Destino de backups comprimidos |
+
+### Rollout staged (seguro, sin romper nada)
+
+```
+Fase actual:   TOMY_COMPLETO_ENABLED=false  (producción legacy, sin cambios)
+Paso siguiente: TOMY_COMPLETO_ENABLED=true   (activa pipeline completo)
+```
+
+**Plan de rollout:**
+1. Dejar `false` en producción hasta validar todo en desarrollo
+2. Probar con 1 paciente real en WSL con flag `true`
+3. Si OK → activar definitivamente
+4. Si falla → volver a `false` (modo legacy intacto)
+
+### Módulos nuevos en backend/
+| Módulo | Función |
+|---|---|
+| `workflow_runner.py` | Orquestador 9 pasos asíncrono |
+| `task_db.py` | SQLite para persistencia de tareas |
+| `workflow_steps/` | 9 pasos del pipeline (uno por archivo) |
+| `lote_worker.py` | Subprocess aislado (anti-OOM) |
+| `playwright_real/` | Extracción automatizada de portales |
+| `organizador_formato.py` | Reorganiza DOCX crudos |
+| `correction_resolver.py` | Interpreta correcciones de Sandra |
+| `aplicador_correccion.py` | Aplica correcciones + regenera formatos |
+| `auth_simple.py` | PIN + cookie HMAC |
+| `backup_diario.py` | Backup automático 23:00 |
+| `costos_tracker.py` | Tracking tokens LLM por día |
+| `cron_pre_extraccion.py` | Pre-extracción nocturna de portales |
+
 ## Variables de entorno (.env)
 
 ### python-dotenv REQUERIDO

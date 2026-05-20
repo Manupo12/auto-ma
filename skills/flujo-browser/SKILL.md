@@ -338,6 +338,29 @@ El Dashboard de Sandra puede disparar extracciones de portales vía `puente_dock
 
 ⚠️ Requiere Docker corriendo. Contenedor configurable: `DOCKER_CONTAINER=hermes-a34da917`.
 
+## Tomy Completo (Mayo 2026) — Automatización de portales
+
+### Playwright Real: `backend/playwright_real/`
+La extracción de portales ya NO es solo manual vía browser de Hermes. Ahora existe un sistema automatizado:
+
+| Módulo | Función |
+|---|---|
+| `playwright_real/orquestador.py` | Orquesta extracción completa de ambos portales para una CC |
+| `playwright_real/medifolios.py` | Login → Agenda → siniestro → Pacientes → Hª Clínica (automático) |
+| `playwright_real/positiva.py` | Login → Consulta integral → 6 pestañas → Consultar RHI (automático) |
+| `playwright_real/selectores.py` | Selectores CSS/XPath mantenidos centralizadamente |
+| `playwright_real/session.py` | Manejo de sesión, 3 reintentos, detecta portal caído → modo degradado |
+
+**Uso desde el pipeline (Paso 2):** `resolver_paciente.py` carga JSON pre-extraído. Si no existe, dispara `playwright_real.extraer_paciente_completo(cc)`.
+
+### Pre-extracción nocturna: `backend/cron_pre_extraccion.py`
+- **Horario:** 21:00 COL (APScheduler)
+- **Flujo:** Lee Gmail → detecta correo de agenda Medifolios → extrae pacientes del día siguiente → Playwright extrae cada uno → guarda JSON en `storage/data/`
+- **Notificación:** Telegram a Sandra: "🌙 Mañana 3 citas. Datos listos. Buenas noches."
+
+### Modo degradado
+Si un portal no responde después de 3 reintentos: el pipeline continúa con `datos_portales = None`. `sintetizar_maestro` agrega `[VERIFICAR]` a campos dependientes del portal. Telegram: "Hoy no pude verificar contra Positiva — usé tus notas."
+
 ## ⚠️ CC colombiana: limpiar formato antiguo
 
 \"12'130.558\" → `re.sub(r\"[.' ]\", \"\", cc)` → \"12130558\". Siempre limpiar antes de buscar.

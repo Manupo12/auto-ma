@@ -165,6 +165,27 @@ Esta skill cubre la verificación de CONTENIDO (datos correctos una vez extraíd
 - Limpiar formato antiguo: `12'130.558` → `12130558`
 - `re.sub(r"['. ]", "", cc)`
 
+## Tomy Completo (Mayo 2026) — Integración con el pipeline
+
+### Paso 7 del workflow: `workflow_steps/qa_formatos.py`
+Este skill es llamado por el wrapper `backend/workflow_steps/qa_formatos.py` (Paso 7 del pipeline de 9 pasos). El wrapper:
+1. Recibe los paths de DOCX generados en el Paso 6
+2. Ejecuta QA 10 capas contra cada documento
+3. Clasifica resultados: ✅ OK, ⚠️ warning, ❌ error crítico
+4. Si error crítico → el formato se marca `⚠️ requiere revisión`, no se genera PDF, se muestra a Sandra para corrección
+5. Pasa resultados al Paso 8 (convertir_pdf)
+
+### Loop de corrección conversacional
+Cuando Sandra pide correcciones por chat ("el siniestro no es X es Y"):
+
+| Componente | Archivo | Función |
+|---|---|---|
+| Resolver | `backend/correction_resolver.py` | Usa LLM para extraer (campo, valor_nuevo, valor_anterior) del mensaje de Sandra |
+| Aplicador | `backend/aplicador_correccion.py` | Actualiza JSON maestro + identifica formatos afectados + regenera solo esos formatos |
+| Endpoint | `POST /api/corregir-paciente/{cc}` | Recibe `{mensaje, formato_id?}` |
+
+**Flujo:** Sandra corrige → correction_resolver interpreta → actualiza `storage/data/{cc}-completo.json` con marca `"manual_sandra"` → regenera formatos afectados → confirma: "Listo, actualicé el siniestro y regeneré los 7 formatos."
+
 ## 🆕 Pitfalls QA 2026-05-16
 
 - **chr(10) vs "\n"**: `replace(" / ", "\n")` rompe sintaxis Python. Usar `chr(10)`.

@@ -112,9 +112,67 @@ Docker (Hermes/Tomy) ──git push──→ GitHub (Manupo12/auto-ma) ──git
 - NO usar rglob en /mnt/c/ (lentísimo, 30s+) — usar scandir máx 2 niveles
 - Chat dashboard: fetch directo a :8000, NO proxy Next.js (timeout 30s)
 
+## Tomy Completo (Mayo 2026) — Pipeline End-to-End
+
+**Estado:** Implementado (commits `0cbd300` → `304da2d`). Feature flag `TOMY_COMPLETO_ENABLED=false` por default.
+
+### Arquitectura
+Pipeline asíncrono de 9 pasos que convierte audio de consulta → 7 formatos listos en 10-20 min. Sandra solo sube audio y aprueba.
+
+```
+workflow_runner.py → 9 steps:
+ 1. transcribir.py      Deepgram nova-2 + chunks ffmpeg (25 min) si >30 min
+ 2. resolver_paciente.py  JSON pre-extraído o Playwright al vuelo
+ 3. leer_notas_crudas.py  Escanea workspace por CC del paciente
+ 4. leer_formatos_subidos.py  DOCX de referencia subidos por Sandra
+ 5. sintetizar_maestro.py  LLM DeepSeek v4 razonador (~12K chars contexto cruzado)
+ 6. generar_formatos.py  Wrapper sobre doc_generator (7 formatos)
+ 7. qa_formatos.py       QA 10 capas sobre cada DOCX
+ 8. convertir_pdf.py     LibreOffice → PDF/A
+ 9. notificar_listo.py   Telegram a Sandra
+```
+
+### Componentes clave nuevos
+| Componente | Archivo | Función |
+|---|---|---|
+| Persistencia | `backend/task_db.py` | SQLite `workflow_tasks`: estados, pasos, resultados |
+| Feature flag | `.env` → `TOMY_COMPLETO_ENABLED` | Activa/desactiva todo el pipeline nuevo |
+| Dashboard principal | `dashboard/app/hoy/page.tsx` | "Mi Día" — landing boomer-proof para Sandra |
+| Vista 360 | `dashboard/app/paciente/[cc]/page.tsx` | Todo del paciente en 1 panel |
+| Organizador | `backend/organizador_formato.py` | Reorganiza DOCX crudos cruzando con verificados |
+| Corrección | `backend/correction_resolver.py` + `aplicador_correccion.py` | Loop conversacional: Sandra dicta corrección → Tomy actualiza JSON + regenera |
+| Auth | `backend/auth_simple.py` | PIN 4 dígitos + cookie HMAC |
+| Backup | `backend/backup_diario.py` | Cron 23:00 → comprime storage/ (sin audios) → Telegram a Manu |
+| Costos | `backend/costos_tracker.py` | Tracking tokens LLM por día, alerta si >umbral |
+| Playwright real | `backend/playwright_real/` | Extracción automatizada Medifolios + Positiva (ya no solo mapas manuales) |
+
+### Variables de entorno nuevas
+```bash
+TOMY_COMPLETO_ENABLED=false
+WORKFLOW_DB_PATH=./storage/workflow.db
+WORKFLOW_TIMEOUT_TOTAL_S=1800
+AUDIO_CHUNK_DURATION_S=1500
+AUTH_PIN=1234
+AUTH_SECRET=cambiar-este-secret-en-prod
+BACKUP_HORA=23
+```
+
+### Casos alternos que maneja
+- Paciente fuera de agenda → extracción al vuelo
+- Audio >30 min → chunking ffmpeg (25 min/chunk)
+- Portal caído → modo degradado, marca [VERIFICAR]
+- Datos contradictorios → prevalece reglas clínicas
+- Sandra corrige por chat → correction_resolver actualiza + regenera
+- Formato antiguo desorganizado → organizador_formato lo reescribe limpio
+
+### Estado rollout
+- Feature flag OFF por default (seguro)
+- Esperando activación `TOMY_COMPLETO_ENABLED=true` en WSL producción
+- OOM resuelto vía `lote_worker.py` subprocess aislado
+
 ## Problemas Actuales (Mayo 2026)
-1. **OOM en lotes**: procesar 9 formatos con DeepSeek v4 agota RAM del contenedor
-2. **Extracción portales**: no probada con navegador real
+1. ~~**OOM en lotes**~~ → Resuelto: lote_worker.py subprocess aislado
+2. ~~**Extracción portales**~~ → Resuelto: playwright_real implementado
 3. **Firma Sandra**: `firma_sandra.png` no existe aún
 4. **.odt → .docx**: `ejemplo prueba de trabajo.odt` sin convertir
 5. **Gmail/Telegram**: tokens pendientes de configurar

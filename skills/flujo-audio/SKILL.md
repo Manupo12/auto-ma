@@ -315,6 +315,23 @@ async def upload_audio(
     }
 ```
 
+## Tomy Completo (Mayo 2026) — Integración con el pipeline
+
+### Paso 1 del workflow: `workflow_steps/transcribir.py`
+Este skill es llamado por el wrapper `backend/workflow_steps/transcribir.py` (Paso 1 del pipeline de 9 pasos). NO se usa directamente el endpoint de upload — el workflow_runner orquesta la transcripción como parte del pipeline end-to-end.
+
+### Chunking con ffmpeg para audios >30 min
+Para audios largos (1h+), el sistema divide automáticamente:
+- **Detección**: `_calcular_duracion_s()` vía ffprobe
+- **Umbral**: `AUDIO_CHUNK_DURATION_S=1500` (25 minutos por chunk)
+- **División**: `_dividir_en_chunks()` con ffmpeg → chunks .wav en `storage/audios_temp/`
+- **Procesamiento**: Cada chunk se transcribe con Deepgram en paralelo
+- **Resultado**: Transcripciones concatenadas con timestamps ajustados
+- **Tiempo**: ~5 min para audio de 1h15 vs ~15 min secuencial
+
+### Evaluación de confianza post-transcripción
+Si `confidence` global < 0.6: el workflow marca warning y alerta a Sandra: "el audio tiene baja calidad, los datos cualitativos pueden estar incompletos".
+
 ## Prueba
 
 ```bash

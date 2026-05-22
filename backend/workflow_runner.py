@@ -69,24 +69,15 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
                 db.marcar_error(task_id, paso=paso_num, error=error)
                 return {"task_id": task_id, "estado": f"error_en_paso_{paso_num}", "error": error}
 
-            # NUEVO: Si faltan datos críticos tras síntesis, notificar y pausar
+            # Si faltan datos tras sintesis, seguir pero marcar advertencia
             if step_name == "sintetizar_maestro":
                 datos_clinicos = resultado_step.get("datos_clinicos") or {}
                 faltantes = datos_clinicos.get("_meta", {}).get("campos_faltantes", [])
-                criticos = [f for f in faltantes if any(c in f.lower() for c in ["siniestro", "cc", "nombre", "diagnostico"])]
-                if criticos:
-                    _log(f"⚠️ Datos críticos faltantes: {criticos}")
-                    try:
-                        from backend.notificador import enviar_telegram
-                        enviar_telegram(
-                            f"⚠️ Procesé el audio de CC {paciente_cc} pero me faltan datos críticos:\n" +
-                            "\n".join(f"  • {c}" for c in criticos[:5]) +
-                            f"\n\n¿Me los das?: http://localhost:3000/paciente/{paciente_cc}"
-                        )
-                    except Exception as notif_err:
-                        _log(f"Error notificando datos críticos: {notif_err}")
-                    db.guardar_resultado(task_id, {"campos_faltantes": criticos, "datos_parciales": datos_clinicos}, estado="esperando_datos")
-                    return {"task_id": task_id, "estado": "esperando_datos", "campos_faltantes": criticos}
+                if faltantes:
+                    _log(f"⚠️ Datos sin confirmar ({len(faltantes)}): {faltantes[:4]}")
+                    if not contexto.get("advertencias"):
+                        contexto["advertencias"] = []
+                    contexto["advertencias"].extend(faltantes)
 
         except Exception as e:
             _log(f"PASO {paso_num} FALLÓ: {type(e).__name__}: {e}")

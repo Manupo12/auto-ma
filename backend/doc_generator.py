@@ -29,10 +29,10 @@ def _sanitize_filename(name: str) -> str:
     """Reemplaza caracteres inválidos en nombres de archivo (/, \, :, *, ?, ", <, >, |)."""
     return re.sub(r'[/\\:*?"<>|]', '-', name)
 
-BASE = Path("/root/fisioterapia")
-TEMPLATES = BASE / "templates/formatos"
+BASE = Path(os.getenv("RILO_ROOT", str(Path(__file__).parent.parent)))
+TEMPLATES = Path(os.getenv("TEMPLATES_DIR", str(BASE / "templates/formatos")))
 ASSETS = BASE / "templates/assets"
-DOCS = BASE / "storage/docs"
+DOCS = Path(os.getenv("STORAGE_DIR", str(BASE / "storage"))) / "docs"
 PDF = BASE / "storage/pdfs"
 FIRMA = ASSETS / "firma_sandra.png"
 NS_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"

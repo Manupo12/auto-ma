@@ -855,16 +855,13 @@ async def procesar_paciente(
     }
 
 
-@app.get("/api/tasks/{task_id}")
-def estado_task(task_id: str):
-    """Estado actual de un workflow task."""
+@app.get("/api/tasks/activas")
+def listar_activas():
+    """Tasks actualmente en proceso (dashboard 'Mi Dia')."""
     from backend.task_db import TaskDB
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
     db = TaskDB(db_path)
-    task = db.obtener_task(task_id)
-    if not task:
-        raise HTTPException(404, f"Task {task_id} no encontrada")
-    return {"ok": True, "task": task}
+    return {"ok": True, "tasks": db.listar_activos()}
 
 
 @app.get("/api/tasks/paciente/{cc}")
@@ -876,13 +873,16 @@ def listar_tasks_paciente(cc: str):
     return {"ok": True, "tasks": db.listar_tasks_paciente(cc)}
 
 
-@app.get("/api/tasks/activas")
-def listar_activas():
-    """Tasks actualmente en proceso (dashboard 'Mi Día')."""
+@app.get("/api/tasks/{task_id}")
+def estado_task(task_id: str):
+    """Estado actual de un workflow task."""
     from backend.task_db import TaskDB
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
     db = TaskDB(db_path)
-    return {"ok": True, "tasks": db.listar_activos()}
+    task = db.obtener_task(task_id)
+    if not task:
+        raise HTTPException(404, f"Task {task_id} no encontrada")
+    return {"ok": True, "task": task}
 
 
 @app.post("/api/tasks/{task_id}/cancelar")

@@ -14,9 +14,9 @@ Cada selector tiene 3 fallbacks: CSS principal, XPath alternativo, texto visible
 MEDI_URL = "https://www.server0medifolios.net/"
 
 MEDI_LOGIN = {
-    "usuario_input": "input[name='USUARIO'], #USUARIO, input[type='text']",
-    "password_input": "input[name='CONTRASEÑA'], input[name='CONTRASENA'], input[type='password']",
-    "submit_button": "button:has-text('Ingresar'), input[type='submit']",
+    "usuario_input": "#txt_usuario_login, input[name='USUARIO'], input[type='text']",
+    "password_input": "#txt_password_login, input[name='CONTRASEÑA'], input[type='password']",
+    "submit_button": "button:has-text('Iniciar Sesión'), button[type='submit'], input[type='submit']",
     "popup_cambia_password_close": "button:has-text('Close'), .modal .close",
     "post_login_heartbeat": "text=Bienvenido, Sandra",
 }

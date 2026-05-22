@@ -1,0 +1,23 @@
+{
+  "cc": "36280228",
+  "medifolios": {
+    "cc_buscado": "36280228",
+    "fuente": "medifolios",
+    "error_form": "TimeoutError: Page.wait_for_selector: Timeout 10000ms exceeded.\nCall log:\n  - waiting for locator(\"#numero_id\") to be visible\n",
+    "siniestro_medi": "[VERIFICAR]"
+  },
+  "positiva": {
+    "cc_buscado": "36280228",
+    "fuente": "positiva",
+    "error": "TimeoutError: Page.wait_for_selector: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"text=MARIA GREIDY\") to be visible\n"
+  },
+  "_meta": {
+    "extraido_en": "2026-05-22T15:57:57.384997",
+    "fuentes": [
+      "medifolios",
+      "positiva"
+    ],
+    "discrepancias": [],
+    "parcial": true
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "transcripcion": {
+    "texto": "Y ahí empieza a grabar. Usted lo entrega que hacer ahí cerca de usted. Y empieza la PUM, como usted le pregunta siempre, si hay que seguir grabando. Bueno. Usted empieza a grabar. ¿En cuánto dura? ¿Una hora? Es una hora. Lo que tienen que ¿Y si eso sí sí da espacio a mi celular? Claro. ¿Por qué? Porque hay de fácil. ¿Y luego? ¿Qué? Y yo lo y y Y ya luego, este, acá lo paran.",
+    "duracion": 0.0,
+    "confianza": 0.9135742,
+    "segmentos": [
+      {
+        "texto": "Y ahí empieza a grabar. Usted lo entrega que hacer ahí cerca de usted. Y empieza la PUM, como usted le pregunta siempre, si hay que seguir grabando. Bueno. Usted empieza a grabar.",
+        "inicio": 0.64,
+        "fin": 10.559999,
+        "hablante": 0
+      },
+      {
+        "texto": "¿En cuánto dura? ¿Una hora? Es una hora.",
+        "inicio": 10.559999,
+        "fin": 12.719999,
+        "hablante": 1
+      },
+      {
+        "texto": "Lo que tienen que",
+        "inicio": 12.719999,
+        "fin": 13.44,
+        "hablante": 0
+      },
+      {
+        "texto": "¿Y si eso sí sí da espacio a mi celular?",
+        "inicio": 13.759999,
+        "fin": 16.625,
+        "hablante": 1
+      },
+      {
+        "texto": "Claro. ¿Por qué? Porque hay de fácil.",
+        "inicio": 16.685,
+        "fin": 19.744999,
+        "hablante": 0
+      },
+      {
+        "texto": "¿Y luego? ¿Qué? Y yo lo y y Y",
+        "inicio": 20.045,
+        "fin": 24.445,
+        "hablante": 1
+      },
+      {
+        "texto": "ya luego, este, acá lo paran.",
+        "inicio": 24.445,
+        "fin": 26.384998,
+        "hablante": 0
+      }
+    ]
+  },
+  "datos": {
+    "metodologia": "",
+    "proceso_productivo": "",
+    "apreciacion_trabajador": "",
+    "estandares_productividad": "",
+    "materiales": [],
+    "peligros": [],
+    "tareas_criticas": [],
+    "concepto_desempeno": "",
+    "recomendaciones": {
+      "trabajador": "",
+      "empresa": ""
+    }
+  }
+}

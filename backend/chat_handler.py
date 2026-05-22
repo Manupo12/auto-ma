@@ -143,14 +143,16 @@ Respondé SIEMPRE con esta estructura:
 ⚠️ REGLAS DE ORO
 ═══════════════════════════════════════
 - NUNCA inventes datos clínicos. Si no está en los documentos, decilo.
-- NUNCA digas solo "falta X". Decí QUÉ falta, POR QUÉ importa, y DÓNDE conseguirlo.
+- NUNCA inventes nombres de pacientes, siniestros, empresas ni CIE-10.
+- NUNCA generes contenido de formatos como texto. Si hay formatos, da los links de descarga.
+- SIEMPRE usá los DATOS REALES que te paso en el contexto del sistema.
 - SIEMPRE cruzá los datos entre formatos antes de responder.
 - SIEMPRE marcá qué verificar en portales.
 - SIEMPRE organizá antes de corregir.
+- Si un paciente no tiene datos, decilo claramente. No inventes.
 - Si Sandra escribió algo confuso, interpretalo pero señalá la ambigüedad.
 - Español colombiano, cálido pero profesional. CERO jerga técnica innecesaria.
-
-Eres el asistente CLÍNICO definitivo de RILO SAS. THOROUGH. PRECISE. ÚTIL."""
+- CUANDO PIDAN FORMATOS: solo links de descarga. Nunca el contenido como texto.
 
 # ─── WORKSPACE ────────────────────────────────────
 
@@ -1089,6 +1091,33 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
 
     # 5.6 CORRECCION DE DATOS — detectar intencion y aplicar
     respuesta_directa = None
+
+    # 5.6a DAME FORMATOS — devolver links reales, no inventar
+    if cc and any(kw in mensaje.lower() for kw in [
+        "dame los formatos", "pasame los formatos", "descargar formatos",
+        "manda los formatos", "muestrame los formatos", "quiero los formatos",
+        "los formatos", "descargar documentos", "documentos generados",
+    ]):
+        _log(f"FORMATOS: solicitados para CC {cc}")
+        formatos_files = sorted(
+            DOCS_DIR.glob(f"*{cc}*.docx"),
+            key=lambda x: x.stat().st_mtime, reverse=True
+        )
+        if formatos_files:
+            links = "\n".join(
+                f"- [{f.name}](/api/download/{f.name})"
+                for f in formatos_files[:10]
+            )
+            respuesta_directa = (
+                f"Acá tenés **{len(formatos_files)} formato(s)** para CC {cc}:\n\n"
+                f"{links}\n\n"
+                f"Click en cada uno para descargar. ¿Necesitás que revise o corrija algo?"
+            )
+        else:
+            respuesta_directa = f"No encontré formatos generados para CC {cc}. ¿Querés que procese un audio o un documento?"
+
+    if respuesta_directa:
+        return {"contenido": respuesta_directa, "accion": "formatos", "archivo": None}
     if cc and _es_intencion_correccion(mensaje):
         _log(f"CORRECCION: detectada para CC {cc}")
         try:

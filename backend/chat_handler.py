@@ -1111,6 +1111,62 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
     if respuesta_directa:
         return {"contenido": respuesta_directa, "accion": "correccion", "archivo": None}
 
+    # 5.7 PROCESAR DOCUMENTO DESDE CARPETA — buscar, leer, completar, verificar
+    if cc and doc_content and any(kw in mensaje.lower() for kw in [
+        "completa este", "completame este", "completa el", "organiza este",
+        "organizame este", "corrige este", "verifica este", "revisa este",
+        "procesa este", "arregla este", "termina este",
+    ]):
+        _log(f"PROCESAR DOC: detectado para CC {cc}")
+        try:
+            from backend.workflow_steps.verificar_portales import ejecutar as verificar_portales
+            from backend.workflow_steps.sintetizar_maestro import ejecutar as sintetizar
+
+            # 1. Leer el documento encontrado (ya esta en doc_content)
+            archivo_nombre_doc = archivo_nombre or "documento"
+
+            # 2. Sintetizar datos del documento (sin transcripcion de audio)
+            sintesis_doc = sintetizar(
+                transcripcion={"texto": doc_content, "segmentos": []},
+                datos_portales={},
+                notas_crudas=[],
+                formatos_subidos=[],
+                paciente_cc=cc,
+            )
+            datos_doc = sintesis_doc.get("datos_clinicos") or {}
+            if sintesis_doc.get("ok") and datos_doc:
+                # 3. Verificar contra portales
+                verif = verificar_portales(datos_clinicos=datos_doc, paciente_cc=cc)
+                resumen = verif.get("resumen", {})
+
+                # 4. Generar formatos con datos enriquecidos
+                from backend.workflow_steps.generar_formatos import ejecutar as generar_f
+                gen = generar_f(datos_clinicos=datos_doc, task_id="doc_" + cc, verificaciones=verif.get("verificaciones", []))
+                formatos_gen = gen.get("formatos_generados", [])
+
+                links = "\n".join(
+                    f"- [{f['archivo'].split('/')[-1]}](/api/download/{f['archivo'].split('/')[-1]})"
+                    for f in formatos_gen
+                ) if formatos_gen else ""
+
+                respuesta_directa = (
+                    f"✅ Procese `{archivo_nombre_doc}` para CC {cc}.\n\n"
+                    f"🔍 Verificacion portales: {resumen.get('confirmados',0)}/{resumen.get('total',0)} confirmados"
+                    + (f", {resumen.get('discrepancias',0)} discrepancias" if resumen.get('discrepancias', 0) else "")
+                    + (f", {resumen.get('faltantes',0)} faltantes" if resumen.get('faltantes', 0) else "")
+                    + (f"\n\nFormatos generados:\n{links}" if links else "")
+                    + "\n\n¿Algo mas que necesites?"
+                )
+            else:
+                respuesta_directa = f"No pude extraer datos suficientes de `{archivo_nombre_doc}`. ¿Me das mas contexto?"
+
+        except Exception as e:
+            _log(f"PROCESAR DOC: error {e}")
+            respuesta_directa = f"No pude procesar el documento: {e}"
+
+    if respuesta_directa:
+        return {"contenido": respuesta_directa, "accion": "documento", "archivo": archivo_nombre}
+
     # 6. Armar mensaje final con contexto de portal
     if contexto_portal:
         mensaje_con_sugerencia = mensaje + "\n\n" + contexto_portal

@@ -108,6 +108,6 @@ class TaskDB:
     def listar_activos(self) -> list:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM workflow_tasks WHERE estado NOT IN ('listo','cancelado') AND estado NOT LIKE 'error_%' ORDER BY iniciado_en DESC",
+                "SELECT * FROM workflow_tasks WHERE estado NOT IN ('listo','cancelado','esperando_datos','pendiente') AND estado NOT LIKE 'error_%' AND paso_actual > 0 ORDER BY iniciado_en DESC",
             ).fetchall()
         return [dict(r) for r in rows]

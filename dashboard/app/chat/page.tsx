@@ -85,8 +85,11 @@ export default function ChatPage() {
   const [fpCc, setFpCc] = useState("");
   const [fpArchivos, setFpArchivos] = useState<{ nombre: string; tamano_kb: number }[]>([]);
   const [fpLoading, setFpLoading] = useState(false);
+  const [isClient, setIsClient] = useState(false);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => { setIsClient(true); }, []);
 
   useEffect(() => {
     saveMessages(mensajes);
@@ -109,16 +112,18 @@ export default function ChatPage() {
       .then(r => r.json())
       .then(d => { if (d.ok) setPacientesHistorial(d.pacientes || []); })
       .catch(() => {});
-  }, [mensajes.length]);
+  }, []);
 
-  // Guardar conversacion cuando cambia el CC
+  // Guardar conversacion cuando hay mensajes con CC
   useEffect(() => {
-    if (!pacienteCc || mensajes.length <= 1) return;
+    if (mensajes.length <= 1) return;
+    const cc = pacienteCc || mensajes.find(m => m.pacienteCC)?.pacienteCC;
+    if (!cc) return;
     const timer = setTimeout(() => {
       fetch(`${API}/api/chat/historial`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paciente_cc: pacienteCc, mensajes })
+        body: JSON.stringify({ paciente_cc: cc, mensajes })
       }).catch(() => {});
     }, 2000);
     return () => clearTimeout(timer);
@@ -437,11 +442,15 @@ export default function ChatPage() {
                 suppressHydrationWarning
               >
                 {msg.rol === "asistente" ? (
-                  <div className="prose prose-sm max-w-none prose-slate">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {msg.contenido}
-                    </ReactMarkdown>
-                  </div>
+                  isClient ? (
+                    <div className="prose prose-sm max-w-none prose-slate">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.contenido}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap">{msg.contenido}</p>
+                  )
                 ) : (
                   <p className="whitespace-pre-wrap">{msg.contenido}</p>
                 )}

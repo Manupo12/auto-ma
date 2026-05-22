@@ -22,20 +22,24 @@ MEDI_LOGIN = {
 }
 
 MEDI_PACIENTES = {
-    "menu_pacientes": "a:has-text('Pacientes'), [href*='pacientes']",
+    "url": "https://www.server0medifolios.net/index.php/SALUD_HOME/paciente",
+    "menu_pacientes": "a:has-text('Pacientes'), [href*='SALUD_HOME/paciente']",
     "numero_id_input": "#numero_id",
     "nombre1": "#nombre1",
     "nombre2": "#nombre2",
     "apellido1": "#apellido1",
     "apellido2": "#apellido2",
-    "fecha_nacimiento": "#fecha_nacimiento",
-    "telefono": "#telefono",
     "direccion": "#direccion",
+    "telefono": "#telefono",
     "email": "#email",
-    "eps_select": "#slct_eps_paciente",
-    "afp_select": "#slct_afp_paciente",
-    "arl_select": "#slct_arl_paciente",
-    "empresa_select": "#slct_empresa_paciente",
+    "fecha_nacimiento": "#fecha_nacimiento",
+    "edad": "#edad",
+    "sexo": "select[name='sexo'], #sexo",
+}
+
+MEDI_AGENDA = {
+    "url": "https://www.server0medifolios.net/index.php/SALUD_GESTIONCITAS/agenda_cita",
+    "menu_agenda": "a:has-text('Agenda Citas'), [href*='agenda_cita']",
 }
 
 # JS para forzar carga de paciente (Enter nativo no dispara búsqueda)

@@ -1,12 +1,12 @@
 """
-Manejo de sesión Playwright con storage_state persistente y re-login automático.
+Manejo de sesion Playwright con storage_state persistente y re-login automatico.
 
 Cada portal tiene un archivo de state en PLAYWRIGHT_SESSIONS_DIR/{portal}.json.
 El state contiene cookies + localStorage. Vive ~15 min en ambos portales.
 
 Uso:
     async with abrir_contexto(portal="medifolios") as (browser, ctx, page):
-        # ya estás logueado (re-auto si hace falta)
+        # ya estas logueado (re-auto si hace falta)
         await page.goto(...)
 """
 import os
@@ -37,49 +37,82 @@ def _state_path(portal: str) -> Path:
     return SESSIONS_DIR / f"{portal}.json"
 
 
+def _build_browser_context():
+    """Crea browser y context con anti-deteccion para evitar captchas."""
+    stealth_js = """() => {
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+    }"""
+    return {
+        "headless": not DEBUG,
+        "args": ["--disable-blink-features=AutomationControlled"],
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "init_script": stealth_js,
+    }
+
+
 async def _login_medifolios(page: Page):
-    """Hace login en Medifolios. Asume page acaba de cargar MEDI_URL."""
+    """Hace login en Medifolios."""
     await page.goto(S.MEDI_URL, timeout=TIMEOUT_MS)
+    await page.wait_for_timeout(3000)
     await page.fill(S.MEDI_LOGIN["usuario_input"], os.getenv("MEDIFOLIOS_USER", ""))
     await page.fill(S.MEDI_LOGIN["password_input"], os.getenv("MEDIFOLIOS_PASSWORD", ""))
-    await page.click(S.MEDI_LOGIN["submit_button"])
-    # Cerrar popup "Cambia tu contraseña"
+    await page.press(S.MEDI_LOGIN["password_input"], "Enter")
+    # Cerrar popup "Cambia tu contrasena"
     try:
         await page.wait_for_selector(S.MEDI_LOGIN["popup_cambia_password_close"], timeout=5000)
         await page.click(S.MEDI_LOGIN["popup_cambia_password_close"])
     except Exception:
         pass
-    # Verificar login OK
-    await page.wait_for_selector(S.MEDI_LOGIN["post_login_heartbeat"], timeout=TIMEOUT_MS)
+    await page.wait_for_timeout(3000)
     _log("MEDI: login OK")
 
 
 async def _login_positiva(page: Page):
-    """Hace login en ARL Positiva."""
+    """Hace login en ARL Positiva via CAS."""
     await page.goto(S.POS_URL, timeout=TIMEOUT_MS)
+    await page.wait_for_timeout(3000)
     await page.fill(S.POS_LOGIN["usuario_input"], os.getenv("POSITIVA_USER", ""))
     await page.fill(S.POS_LOGIN["password_input"], os.getenv("POSITIVA_PASSWORD", ""))
     await page.click(S.POS_LOGIN["submit_button"])
-    await page.wait_for_selector(S.POS_LOGIN["post_login_heartbeat"], timeout=TIMEOUT_MS)
+    await page.wait_for_timeout(10000)
+
+    body = await page.text_content("body") or ""
+    if "Ingresar a Cuida" in body:
+        links = await page.evaluate("""() =>
+            Array.from(document.querySelectorAll('a'))
+                .filter(a => a.textContent.includes('Ingresar a Cuida'))
+                .map(a => a.href)
+        """)
+        if links:
+            await page.goto(links[0], timeout=TIMEOUT_MS)
+            await page.wait_for_timeout(5000)
     _log("POS: login OK")
 
 
 async def _verificar_sesion(page: Page, portal: str) -> bool:
-    """Heartbeat post-login: ¿la sesión sigue viva?"""
-    selector = S.MEDI_LOGIN["post_login_heartbeat"] if portal == "medifolios" else S.POS_LOGIN["post_login_heartbeat"]
-    try:
-        count = await page.locator(selector).count()
-        return count > 0
-    except Exception:
-        return False
+    """Heartbeat post-login: la sesion sigue viva?"""
+    if portal == "medifolios":
+        try:
+            body = await page.text_content("body") or ""
+            return "Menu Principal" in body or "Bienvenido" in body
+        except Exception:
+            return False
+    else:
+        try:
+            body = await page.text_content("body") or ""
+            return "MARIA GREIDY" in body or "Proveedor" in body
+        except Exception:
+            return False
 
 
 async def login_y_guardar(portal: str) -> Path:
     """Hace login limpio y guarda storage_state. Retorna path al state."""
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=not DEBUG)
-        ctx = await browser.new_context()
+        cfg = _build_browser_context()
+        browser = await p.chromium.launch(headless=cfg["headless"], args=cfg["args"])
+        ctx = await browser.new_context(user_agent=cfg["user_agent"])
         page = await ctx.new_page()
+        await page.add_init_script(cfg["init_script"])
         try:
             if portal == "medifolios":
                 await _login_medifolios(page)
@@ -100,24 +133,31 @@ async def login_y_guardar(portal: str) -> Path:
 async def abrir_contexto(portal: str) -> Tuple[Browser, BrowserContext, Page]:
     """
     Context manager: devuelve (browser, context, page) listo para usar.
-    Auto-loguea si el state no existe o expiró.
+    Auto-loguea si el state no existe o expiro.
     """
     state_path = _state_path(portal)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=not DEBUG)
+        cfg = _build_browser_context()
+        browser = await p.chromium.launch(headless=cfg["headless"], args=cfg["args"])
 
-        kwargs = {}
+        kwargs: dict = {"user_agent": cfg["user_agent"]}
         if state_path.exists():
             kwargs["storage_state"] = str(state_path)
         ctx = await browser.new_context(**kwargs)
         page = await ctx.new_page()
+        await page.add_init_script(cfg["init_script"])
 
-        home_url = S.MEDI_URL if portal == "medifolios" else S.POS_URL.split("?")[0].replace("/cas/login", "/web/")
+        if portal == "medifolios":
+            home_url = S.MEDI_URL
+        else:
+            home_url = "https://positivacuida.positiva.gov.co/web/systemSelection/arp"
+
         await page.goto(home_url, timeout=TIMEOUT_MS)
+        await page.wait_for_timeout(3000)
 
         if not await _verificar_sesion(page, portal):
-            _log(f"{portal.upper()}: sesión expirada o inexistente — re-login")
+            _log(f"{portal.upper()}: sesion expirada o inexistente — re-login")
             if portal == "medifolios":
                 await _login_medifolios(page)
             else:

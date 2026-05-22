@@ -1,10 +1,10 @@
 """
-Chat Tomy Dashboard v5 — Robusto, rápido, tolerante a fallos.
+Chat Tomy Dashboard v5 -- Robusto, rápido, tolerante a fallos.
 
 Arreglos de raíz (Mayo 2026):
 - Sin rglob (causaba hangs de 30s+ en /mnt/c/)
-- Manejo de respuesta LLM vacía (0 chars → mensaje de fallback)
-- Búsqueda de archivos por nombre parcial (VOI_JOHN → encuentra VOI_JOHN DEIVER...)
+- Manejo de respuesta LLM vacía (0 chars -> mensaje de fallback)
+- Búsqueda de archivos por nombre parcial (VOI_JOHN -> encuentra VOI_JOHN DEIVER...)
 - Workspace alternativo: si el principal no existe, usa storage/docs/
 - Timeouts agresivos en todas las operaciones de archivo
 - Endpoint /api/workspace para diagnóstico
@@ -34,46 +34,46 @@ def _log(msg):
     print(f"[TOMY {datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
 
 SYSTEM_PROMPT = """Eres Tomy, asistente EXPERTO de Sandra (RILO SAS, fisioterapeuta ARL Positiva Colombia).
-Tu trabajo NO es solo leer documentos — es ORGANIZAR, VERIFICAR, CRUZAR Y CORREGIR.
+Tu trabajo NO es solo leer documentos -- es ORGANIZAR, VERIFICAR, CRUZAR Y CORREGIR.
 
-═══════════════════════════════════════
-📋 LOS 7 FORMATOS (VOI = Valoración Desempeño Ocupacional)
-═══════════════════════════════════════
-1. Análisis de Exigencias — perfil del cargo, demandas físicas, riesgos
-2. Carta de Medidas Preventivas — restricciones, adaptaciones
-3. Carta de Recomendaciones — reincorporación, seguimiento
-4. Cierre de Caso — logros, estado final, concepto
-5. Citación a Empresas — convocatoria, visita, análisis puesto
-6. Prueba de Trabajo — tareas, observación, desempeño real
-7. VOI (Valoración Desempeño Ocupacional Final) — historia ocupacional, áreas, concepto
 
-═══════════════════════════════════════
-🔍 PROTOCOLO DE VERIFICACIÓN (OBLIGATORIO)
-═══════════════════════════════════════
+ LOS 7 FORMATOS (VOI = Valoración Desempeño Ocupacional)
+
+1. Análisis de Exigencias -- perfil del cargo, demandas físicas, riesgos
+2. Carta de Medidas Preventivas -- restricciones, adaptaciones
+3. Carta de Recomendaciones -- reincorporación, seguimiento
+4. Cierre de Caso -- logros, estado final, concepto
+5. Citación a Empresas -- convocatoria, visita, análisis puesto
+6. Prueba de Trabajo -- tareas, observación, desempeño real
+7. VOI (Valoración Desempeño Ocupacional Final) -- historia ocupacional, áreas, concepto
+
+
+ PROTOCOLO DE VERIFICACIÓN (OBLIGATORIO)
+
 
 POR CADA DATO CLÍNICO O ADMINISTRATIVO QUE ENCUENTRES, INDICÁ:
 
-✅ VERIFICADO — si coincide en 2+ fuentes (ej: mismo siniestro en análisis y en VOI)
-⚠️ PENDIENTE PORTAL — si necesita confirmarse en Medifolios o Positiva
-❌ DISCREPANCIA — si hay conflicto entre formatos (ej: diagnóstico distinto en medidas vs VOI)
-👤 DATO ORAL — si viene solo de las notas de Sandra, sin confirmar
+[OK] VERIFICADO -- si coincide en 2+ fuentes (ej: mismo siniestro en análisis y en VOI)
+[!] PENDIENTE PORTAL -- si necesita confirmarse en Medifolios o Positiva
+[X] DISCREPANCIA -- si hay conflicto entre formatos (ej: diagnóstico distinto en medidas vs VOI)
+ DATO ORAL -- si viene solo de las notas de Sandra, sin confirmar
 
 QUÉ VERIFICAR EN MEDIFOLIOS (server0medifolios.net, user 55162801-2):
 - Datos personales del paciente (nombre completo, CC, fecha nacimiento, dirección, tel)
 - Empresa, EPS, AFP, ARL
 - Historia clínica: diagnósticos, antecedentes, alergias
-- Siniestro (del campo OBSERVACIONES en Agenda Citas → "NO. SINIESTRO...")
+- Siniestro (del campo OBSERVACIONES en Agenda Citas -> "NO. SINIESTRO...")
 
 QUÉ VERIFICAR EN ARL POSITIVA (positivacuida.positiva.gov.co, user 1075209386MR):
-- Siniestro OFICIAL (pestaña SINIESTROS — ID, fecha, tipo, %PCL)
+- Siniestro OFICIAL (pestaña SINIESTROS -- ID, fecha, tipo, %PCL)
 - Diagnóstico CIE-10 (pestaña REHABILITACIÓN INTEGRAL)
 - Datos del asegurado (pestaña DATOS ASEGURADO)
 - Autorizaciones, evoluciones, bitácoras
 - Matrículas RHI
 
-═══════════════════════════════════════
-📊 CÓMO CRUZAR DATOS ENTRE FORMATOS
-═══════════════════════════════════════
+
+ CÓMO CRUZAR DATOS ENTRE FORMATOS
+
 
 1. PRIMERO: extraé TODOS los datos de TODOS los formatos
 2. LUEGO: hacé una TABLA DE CONSISTENCIA comparando campo por campo:
@@ -83,12 +83,12 @@ QUÉ VERIFICAR EN ARL POSITIVA (positivacuida.positiva.gov.co, user 1075209386MR
    - Diagnóstico: ¿mismo CIE-10?
    - Empresa: ¿mismo nombre y NIT?
    - Fechas: ¿son coherentes? (ej: cierre después de valoración)
-3. MARCA cada discrepancia con ❌ y sugerí cuál es el valor correcto
-4. Si el dato aparece en un solo formato, marcalo ⚠️ PENDIENTE CRUCE
+3. MARCA cada discrepancia con [X] y sugerí cuál es el valor correcto
+4. Si el dato aparece en un solo formato, marcalo [!] PENDIENTE CRUCE
 
-═══════════════════════════════════════
-📝 CÓMO ORGANIZAR DATOS CRUDOS DE SANDRA
-═══════════════════════════════════════
+
+ CÓMO ORGANIZAR DATOS CRUDOS DE SANDRA
+
 
 Sandra escribe sus notas de manera desorganizada. Tu trabajo es EXTRAER y ESTRUCTURAR:
 
@@ -96,65 +96,64 @@ Sandra escribe sus notas de manera desorganizada. Tu trabajo es EXTRAER y ESTRUC
 2. Agrupalos bajo encabezados claros: "DATOS PERSONALES", "DIAGNÓSTICO", "METODOLOGÍA", etc.
 3. Eliminá repeticiones y contradicciones (señalá las que encuentres)
 4. Convertí lenguaje coloquial a lenguaje clínico (pero sin perder el significado)
-5. Si falta un dato crítico, indicalo claramente: 🔴 FALTA: [campo] — [dónde obtenerlo]
+5. Si falta un dato crítico, indicalo claramente:  FALTA: [campo] -- [dónde obtenerlo]
 
-═══════════════════════════════════════
-✏️ CÓMO CORREGIR
-═══════════════════════════════════════
+
+ CÓMO CORREGIR
+
 
 Cuando encuentres errores o inconsistencias:
 1. Mostrá el texto ORIGINAL (lo que dice ahora)
 2. Mostrá el texto CORREGIDO (lo que debería decir)
 3. Explicá POR QUÉ en una línea
-4. Si la corrección requiere verificación en portal, marcalo ⚠️
+4. Si la corrección requiere verificación en portal, marcalo [!]
 
 Ejemplo:
-  ❌ ORIGINAL: "Siniestro 503463870 — Fecha 02/03/2025"
-  ✅ CORREGIDO: "Siniestro 503463870 — Fecha 02/03/2026"
-  📎 MOTIVO: El año 2025 es anterior a la fecha de atención. ⚠️ Verificar en Positiva.
+  [X] ORIGINAL: "Siniestro 503463870 -- Fecha 02/03/2025"
+  [OK] CORREGIDO: "Siniestro 503463870 -- Fecha 02/03/2026"
+   MOTIVO: El año 2025 es anterior a la fecha de atención. [!] Verificar en Positiva.
 
-═══════════════════════════════════════
-📋 FORMATO DE RESPUESTA (OBLIGATORIO)
-═══════════════════════════════════════
+
+ FORMATO DE RESPUESTA (OBLIGATORIO)
+
 
 Respondé SIEMPRE con esta estructura:
 
-## 🔍 RESUMEN
+##  RESUMEN
 [2-3 líneas: cuántos formatos, estado general, hallazgos principales]
 
-## 📊 TABLA DE CONSISTENCIA
+##  TABLA DE CONSISTENCIA
 [Tabla comparando datos clave entre todos los formatos]
 | Campo | Formato 1 | Formato 2 | ... | ¿Coincide? |
 
-## ⚠️ VERIFICACIONES PENDIENTES EN PORTALES
+## [!] VERIFICACIONES PENDIENTES EN PORTALES
 - Medifolios: [lista de lo que hay que verificar]
 - Positiva: [lista de lo que hay que verificar]
 
-## 📝 DATOS ORGANIZADOS
+##  DATOS ORGANIZADOS
 [Secciones del formato principal con datos extraídos y organizados de TODOS los formatos]
 
-## ❌ DISCREPANCIAS Y CORRECCIONES
-[ORIGINAL → CORREGIDO, con motivo]
+## [X] DISCREPANCIAS Y CORRECCIONES
+[ORIGINAL -> CORREGIDO, con motivo]
 
-## 🔴 CAMPOS FALTANTES
+##  CAMPOS FALTANTES
 [Lista de lo que falta, dónde obtenerlo, y prioridad]
 
-═══════════════════════════════════════
-⚠️ REGLAS DE ORO
-═══════════════════════════════════════
-- NUNCA inventes datos clínicos. Si no está en los documentos, decilo.
-- NUNCA inventes nombres de pacientes, siniestros, empresas ni CIE-10.
-- NUNCA generes contenido de formatos como texto. Si hay formatos, da los links de descarga.
-- SIEMPRE usá los DATOS REALES que te paso en el contexto del sistema.
-- SIEMPRE cruzá los datos entre formatos antes de responder.
-- SIEMPRE marcá qué verificar en portales.
-- SIEMPRE organizá antes de corregir.
-- Si un paciente no tiene datos, decilo claramente. No inventes.
-- Si Sandra escribió algo confuso, interpretalo pero señalá la ambigüedad.
-- Español colombiano, cálido pero profesional. CERO jerga técnica innecesaria.
-- CUANDO PIDAN FORMATOS: solo links de descarga. Nunca el contenido como texto.
 
-# ─── WORKSPACE ────────────────────────────────────
+[!] REGLAS DE ORO
+
+- NUNCA inventes datos clinicos. Si no esta en los documentos, decilo.
+- NUNCA inventes nombres de pacientes, siniestros, empresas ni CIE-10.
+- NUNCA generes contenido de formatos como texto. Si hay formatos, da links.
+- SIEMPRE usa los DATOS REALES del contexto del sistema.
+- SIEMPRE cruza los datos entre formatos antes de responder.
+- SIEMPRE marca que verificar en portales.
+- SIEMPRE organiza antes de corregir.
+- Si un paciente no tiene datos, decilo claramente. No inventes.
+- CUANDO PIDAN FORMATOS: solo links de descarga. Nunca el contenido.
+- Espanol colombiano, calido pero profesional."""
+
+#  WORKSPACE 
 
 def _get_active_workspace() -> Path:
     """Devuelve el workspace activo (principal o fallback)."""
@@ -228,12 +227,12 @@ def _listar_workspace() -> str:
     for path, is_dir, size_kb, mtime in entries[:40]:
         rel = str(path.relative_to(ws))
         if is_dir:
-            lines.append(f"  📁 {rel}/")
+            lines.append(f"   {rel}/")
         else:
-            lines.append(f"  📄 {rel} ({size_kb}KB, {mtime})")
+            lines.append(f"   {rel} ({size_kb}KB, {mtime})")
     
     result = "\n".join(lines[:20]) if lines else "  (carpeta vacía)"
-    _log(f"WORKSPACE: {len(entries)} entradas en {elapsed:.1f}s → {len(lines)} líneas")
+    _log(f"WORKSPACE: {len(entries)} entradas en {elapsed:.1f}s -> {len(lines)} líneas")
     
     _cache_workspace = {"files": result, "ts": now}
     return result
@@ -258,21 +257,21 @@ def _buscar_archivo(mensaje: str) -> Optional[Path]:
     
     ml = mensaje.lower()
     
-    # Estrategia 0: NUEVA — nombre PARCIAL del archivo en el mensaje
-    # "VOI_JOHN DEIVER" → buscar archivos que contengan "voi" y "john"
+    # Estrategia 0: NUEVA -- nombre PARCIAL del archivo en el mensaje
+    # "VOI_JOHN DEIVER" -> buscar archivos que contengan "voi" y "john"
     palabras_msg = set(re.findall(r'[a-záéíóúñ0-9]{3,}', ml))
     for path, size_kb, mtime in archivos:
         stem_lower = path.stem.lower()
         # Contar cuántas palabras del mensaje aparecen en el nombre del archivo
         coincidencias = sum(1 for w in palabras_msg if w in stem_lower)
         if coincidencias >= 2:
-            _log(f"BUSCAR: parcial ({coincidencias} palabras) → {path.name}")
+            _log(f"BUSCAR: parcial ({coincidencias} palabras) -> {path.name}")
             return path
     
     # Estrategia 1: nombre exacto del archivo (sin extensión) en el mensaje
     for path, size_kb, mtime in archivos:
         if path.stem.lower() in ml:
-            _log(f"BUSCAR: exacto → {path.name}")
+            _log(f"BUSCAR: exacto -> {path.name}")
             return path
     
     # Estrategia 2: coincidencia de palabras "reales" (≥4 letras)
@@ -280,7 +279,7 @@ def _buscar_archivo(mensaje: str) -> Optional[Path]:
     for path, size_kb, mtime in archivos:
         palabras_archivo = set(re.findall(r'[a-záéíóúñ]{4,}', path.stem.lower()))
         if len(palabras_largas & palabras_archivo) >= 2:
-            _log(f"BUSCAR: palabras largas → {path.name}")
+            _log(f"BUSCAR: palabras largas -> {path.name}")
             return path
     
     # Estrategia 3: tipo de formato + más reciente
@@ -298,11 +297,11 @@ def _buscar_archivo(mensaje: str) -> Optional[Path]:
                 # Priorizar por coincidencia de nombre
                 for p, s, m in cand:
                     if palabras_largas & set(re.findall(r'[a-záéíóúñ]{4,}', p.stem.lower())):
-                        _log(f"BUSCAR: {tipo} con nombre → {p.name}")
+                        _log(f"BUSCAR: {tipo} con nombre -> {p.name}")
                         return p
                 # Fallback: más reciente
                 best = max(cand, key=lambda x: x[1])  # por mtime string (dd/mm/yyyy)
-                _log(f"BUSCAR: {tipo} más reciente → {best[0].name}")
+                _log(f"BUSCAR: {tipo} más reciente -> {best[0].name}")
                 return best[0]
     
     _log("BUSCAR: no encontrado")
@@ -404,7 +403,7 @@ def _leer_multiples_docx(rutas: list, max_chars_total: int = 15000) -> str:
             chunks.append(truncated)
             chars_used += len(truncated)
     
-    result = f"📚 {len(chunks)} documentos del paciente:\n\n" + "\n\n---\n\n".join(chunks)
+    result = f" {len(chunks)} documentos del paciente:\n\n" + "\n\n---\n\n".join(chunks)
     _log(f"MULTI-LEER: {len(chunks)} archivos, {chars_used} chars en {time.time()-t0:.1f}s")
     return result
 
@@ -415,14 +414,14 @@ def _leer_docx(ruta: Path) -> str:
     t0 = time.time()
     
     if not ruta.exists():
-        _log(f"LEER: ❌ no existe")
+        _log(f"LEER: [X] no existe")
         return ""
     
     if ruta.suffix.lower() == '.txt':
         try:
             content = ruta.read_text(encoding='utf-8', errors='ignore')[:2000]
             _log(f"LEER: txt {len(content)} chars en {time.time()-t0:.1f}s")
-            return f"📄 {ruta.name}:\n{content}"
+            return f" {ruta.name}:\n{content}"
         except Exception as e:
             _log(f"LEER: error txt: {e}")
             return ""
@@ -435,22 +434,22 @@ def _leer_docx(ruta: Path) -> str:
         doc = Document(str(ruta))
         _log(f"LEER: {len(doc.paragraphs)}p, {len(doc.tables)}t en {time.time()-t0:.1f}s")
         
-        lines = [f"📄 {ruta.name} | {len(doc.paragraphs)} párrafos, {len(doc.tables)} tablas\n"]
+        lines = [f" {ruta.name} | {len(doc.paragraphs)} párrafos, {len(doc.tables)} tablas\n"]
         
         # Párrafos con estructura (más para docs pesados de varias páginas)
         for p in doc.paragraphs[:60]:
             t = p.text.strip()
             if not t: continue
             if re.match(r'^\d+[\.\)]\s', t):
-                lines.append(f"\n🔹 {t}")
+                lines.append(f"\n {t}")
             elif t.isupper() and len(t) < 80:
-                lines.append(f"\n📌 {t}")
+                lines.append(f"\n {t}")
             else:
                 lines.append(f"  {t[:150]}")
         
         # Tablas (primeras 8 filas de c/u, máx 5 tablas)
         for ti, tabla in enumerate(doc.tables[:5]):
-            lines.append(f"\n📊 Tabla {ti+1}:")
+            lines.append(f"\n Tabla {ti+1}:")
             for ri, row in enumerate(tabla.rows[:5]):
                 cells = [cell.text.strip()[:50] for cell in row.cells[:6] if cell.text.strip()]
                 if cells:
@@ -461,19 +460,19 @@ def _leer_docx(ruta: Path) -> str:
         return result
     
     except ImportError:
-        _log("LEER: ❌ python-docx no instalado")
+        _log("LEER: [X] python-docx no instalado")
         return ""
     except Exception as e:
-        _log(f"LEER: ❌ {type(e).__name__}: {e}")
+        _log(f"LEER: [X] {type(e).__name__}: {e}")
         return ""
 
 
 def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_files: str = "",
                 historial=None, ctx_sistema: str = "") -> str:
-    """Llama al LLM. DeepSeek v4: modelo de razonamiento — necesita max_tokens alto."""
+    """Llama al LLM. DeepSeek v4: modelo de razonamiento - necesita max_tokens alto."""
     if not API_KEY:
-        _log("LLM: ❌ sin API key")
-        return "⚠️ No tengo conexión con mi cerebro (falta API key). Revisá el archivo .env"
+        _log("LLM: sin API key")
+        return "No tengo conexion con mi cerebro (falta API key). Revisa el archivo .env"
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
@@ -491,24 +490,24 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
     partes = []
     if ctx_sistema:
         partes.append(ctx_sistema)
-    partes.append(f"\n═══ MENSAJE DE SANDRA ═══\n{mensaje}")
+    partes.append(f"\n=== MENSAJE DE SANDRA ===\n{mensaje}")
     if archivo_doc:
-        partes.append(f"\n\n[Documentos encontrados]:\n{archivo_doc}\n⚠️ NO describas. COMPLETA lo que falta.")
+        partes.append(f"\n\n[Documentos encontrados]:\n{archivo_doc}")
     if cc:
         partes.append(f"\n[CC: {cc}]")
     if workspace_files:
-        partes.append(f"\n\n📁 Archivos disponibles:\n{workspace_files}")
+        partes.append(f"\n\nArchivos disponibles:\n{workspace_files}")
     else:
-        partes.append("\n\n📁 No tengo acceso a tu carpeta de trabajo. Avísale a Sandra.")
+        partes.append("\n\nNo tengo acceso a tu carpeta de trabajo.")
 
     ctx = "\n".join(partes)
     messages.append({"role": "user", "content": ctx})
 
     total_chars = sum(len(m["content"]) for m in messages)
-    _log(f"LLM: {total_chars} chars → {MODEL}")
+    _log(f"LLM: {total_chars} chars -> {MODEL}")
     t0 = time.time()
 
-    # DeepSeek v4 es modelo de razonamiento — PIENSA antes de responder.
+    # DeepSeek v4 es modelo de razonamiento -- PIENSA antes de responder.
     # Con archivos pesados (varias páginas, tablas, datos clínicos) el razonamiento
     # puede consumir 10K-15K tokens. Necesita margen holgado para pensar + responder.
     # Sin límites artificiales que fuercen finish=length y respuesta vacía.
@@ -554,7 +553,7 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
                     if content:
                         return content
                     
-                    # Si content vacío pero finish=length → los tokens se agotaron en razonamiento
+                    # Si content vacío pero finish=length -> los tokens se agotaron en razonamiento
                     if finish == "length" and reasoning:
                         _log(f"LLM: finish=length, {len(reasoning)} chars de razonamiento. "
                              f"Reintentando con max_tokens={max_tokens_values[1] if intento==0 else 'N/A'}...")
@@ -564,28 +563,28 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
                             # Último intento: extraer algo del razonamiento
                             lines = [l.strip() for l in reasoning.split('\n') if l.strip()]
                             last_lines = lines[-3:] if len(lines) > 3 else lines
-                            fallback = "🤔 Estoy procesando tu solicitud. " + " ".join(last_lines)[:300]
+                            fallback = " Estoy procesando tu solicitud. " + " ".join(last_lines)[:300]
                             _log(f"LLM: usando fallback de razonamiento ({len(fallback)} chars)")
                             return fallback
                     
                     if finish == "stop" and not content:
-                        _log("LLM: finish=stop pero content vacío — modelo no generó respuesta")
+                        _log("LLM: finish=stop pero content vacío -- modelo no generó respuesta")
                         if intento == 0:
                             # Reintentar con prompt más directo
                             messages.append({"role": "user", "content": "Responde directamente en español, por favor."})
                             continue
-                        return "🤔 El modelo no generó respuesta. Intentá con un mensaje más específico."
+                        return " El modelo no generó respuesta. Intentá con un mensaje más específico."
                     
                     # Otro caso raro
-                    _log(f"LLM: caso no manejado — content={len(content)} finish={finish}")
+                    _log(f"LLM: caso no manejado -- content={len(content)} finish={finish}")
                     if intento == 0:
                         continue
                 else:
                     _log(f"LLM: sin choices: {json.dumps(body)[:200]}")
-                    return "🤔 El servicio de IA no devolvió respuesta. Intentá de nuevo."
+                    return " El servicio de IA no devolvió respuesta. Intentá de nuevo."
             else:
                 _log(f"LLM: HTTP {resp.status_code}: {resp.text[:200]}")
-                return f"🤔 Error del servicio IA (HTTP {resp.status_code})."
+                return f" Error del servicio IA (HTTP {resp.status_code})."
         
         except requests.exceptions.Timeout:
             _log(f"LLM: timeout tras {time.time()-t0:.1f}s")
@@ -596,10 +595,10 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
             _log(f"LLM: {type(e).__name__}: {e}")
             if intento == 0:
                 continue
-            return f"❌ Error de conexión: {type(e).__name__}."
+            return f"[X] Error de conexión: {type(e).__name__}."
 
-    _log("LLM: ❌ agotados los reintentos")
-    return "🤔 No pude generar respuesta después de varios intentos. ¿Probás con un mensaje más concreto?"
+    _log("LLM: [X] agotados los reintentos")
+    return " No pude generar respuesta después de varios intentos. ¿Probás con un mensaje más concreto?"
 
 
 def _procesar_via_workers(archivos: list, cc: str) -> str:
@@ -632,32 +631,32 @@ def _procesar_via_workers(archivos: list, cc: str) -> str:
                 resultado = json.loads(proc.stdout)
                 if resultado.get("ok") and resultado.get("datos_raw"):
                     todos_datos.append(
-                        f"═══ DOC {i+1}/{len(archivos)} ({path.name}) ═══\n"
+                        f" DOC {i+1}/{len(archivos)} ({path.name}) \n"
                         f"{resultado['datos_raw']}"
                     )
                     tokens = resultado.get("tokens", {})
                     _log(f"WORKER {i+1}: {tokens.get('total', '?')}t en {resultado.get('tiempo_s', '?')}s")
             else:
                 _log(f"WORKER {i+1}: FAILED exit={proc.returncode} stderr={proc.stderr[:200]}")
-                todos_datos.append(f"═══ DOC {i+1} ({path.name}) ═══\n[ERROR de extracción]")
+                todos_datos.append(f" DOC {i+1} ({path.name}) \n[ERROR de extracción]")
         except subprocess.TimeoutExpired:
             _log(f"WORKER {i+1}: TIMEOUT")
-            todos_datos.append(f"═══ DOC {i+1} ({path.name}) ═══\n[TIMEOUT]")
+            todos_datos.append(f" DOC {i+1} ({path.name}) \n[TIMEOUT]")
         except Exception as e:
             _log(f"WORKER {i+1}: {type(e).__name__}: {e}")
-            todos_datos.append(f"═══ DOC {i+1} ({path.name}) ═══\n[{type(e).__name__}]")
+            todos_datos.append(f" DOC {i+1} ({path.name}) \n[{type(e).__name__}]")
 
     elapsed = time.time() - t0
     resultado_str = "\n\n".join(todos_datos)
-    _log(f"WORKERS: {len(archivos)} procesados en {elapsed:.1f}s → {len(resultado_str)} chars")
+    _log(f"WORKERS: {len(archivos)} procesados en {elapsed:.1f}s -> {len(resultado_str)} chars")
 
     return f"""[DATOS EXTRAÍDOS DE {len(archivos)} FORMATOS POR WORKERS AISLADOS]
 
 {resultado_str}
 
-⚠️ Tu tarea con estos datos:
+[!] Tu tarea con estos datos:
 1. CRUZAR campos entre documentos, detectar inconsistencias
-2. VERIFICAR contra portales (marcar ✅/⚠️/❌)
+2. VERIFICAR contra portales (marcar [OK]/[!]/[X])
 3. ORGANIZAR información por secciones
 4. CORREGIR discrepancias detectadas
 5. COMPLETAR campos faltantes con prioridad"""
@@ -671,7 +670,7 @@ def _procesar_en_lotes(archivos: list, cc: str, mensaje_original: str) -> str:
     """
     TAMANO_LOTE = 2
     lotes = [archivos[i:i+TAMANO_LOTE] for i in range(0, len(archivos), TAMANO_LOTE)]
-    _log(f"LOTES: {len(archivos)} archivos → {len(lotes)} lotes de ~{TAMANO_LOTE}")
+    _log(f"LOTES: {len(archivos)} archivos -> {len(lotes)} lotes de ~{TAMANO_LOTE}")
     
     EXTRACT_PROMPT = """Extrae TODOS los datos clínicos y administrativos de estos documentos.
 Devuelve SOLO datos, en este formato EXACTO:
@@ -700,7 +699,7 @@ Si un dato no aparece, escribe FALTA."""
         
         # Llamar al LLM para extraer datos
         if not API_KEY:
-            todos_los_datos.append(f"[LOTE {i+1}] Sin API key — no se pudo procesar")
+            todos_los_datos.append(f"[LOTE {i+1}] Sin API key -- no se pudo procesar")
             continue
         
         try:
@@ -724,7 +723,7 @@ Si un dato no aparece, escribe FALTA."""
                 if choices:
                     content = (choices[0].get("message", {}).get("content", "") or "").strip()
                     if content:
-                        todos_los_datos.append(f"═══ LOTE {i+1} ═══\n{content}")
+                        todos_los_datos.append(f" LOTE {i+1} \n{content}")
                         _log(f"LOTE {i+1}: extraídos {len(content)} chars")
                     else:
                         _log(f"LOTE {i+1}: respuesta vacía")
@@ -737,14 +736,14 @@ Si un dato no aparece, escribe FALTA."""
     
     elapsed = time.time() - t0
     resultado = "\n\n".join(todos_los_datos)
-    _log(f"LOTES: {len(lotes)} procesados en {elapsed:.1f}s → {len(resultado)} chars comprimidos")
+    _log(f"LOTES: {len(lotes)} procesados en {elapsed:.1f}s -> {len(resultado)} chars comprimidos")
     
     # Devolver datos comprimidos + instrucción para el cruce final
     return f"""[DATOS EXTRAÍDOS DE {len(archivos)} FORMATOS EN {len(lotes)} LOTES]
 
 {resultado}
 
-⚠️ Con estos datos extraídos, tu tarea es:
+[!] Con estos datos extraídos, tu tarea es:
 1. CRUZAR: comparar campos entre lotes, detectar inconsistencias
 2. VERIFICAR: marcar qué confirmar en Medifolios y Positiva
 3. ORGANIZAR: estructurar la información por secciones
@@ -779,7 +778,7 @@ def _cargar_datos_verificados(cc: str) -> Optional[dict]:
 
 
 def _formatear_datos_verificados(datos: dict) -> str:
-    """Genera texto con marcas ✅/⚠️/❌ a partir del JSON de orquestador."""
+    """Genera texto con marcas [OK]/[!]/[X] a partir del JSON de orquestador."""
     if not datos:
         return ""
     partes = []
@@ -791,234 +790,158 @@ def _formatear_datos_verificados(datos: dict) -> str:
     siniestro_pos_id = siniestros_pos[0].get("id", "[SIN DATO]") if siniestros_pos else "[SIN DATO]"
 
     if siniestro_medi == siniestro_pos_id and siniestro_medi != "[SIN DATO]":
-        partes.append(f"✅ Siniestro: {siniestro_pos_id} (coincide Medifolios + Positiva)")
+        partes.append(f"[OK] Siniestro: {siniestro_pos_id} (coincide Medifolios + Positiva)")
     elif siniestro_medi and siniestro_pos_id and siniestro_medi != "[SIN DATO]" and siniestro_pos_id != "[SIN DATO]":
-        partes.append(f"❌ Siniestro DISCREPANCIA: Medifolios={siniestro_medi} vs Positiva={siniestro_pos_id}")
-        partes.append("   → Prevalece Positiva (fuente oficial)")
+        partes.append(f"[X] Siniestro DISCREPANCIA: Medifolios={siniestro_medi} vs Positiva={siniestro_pos_id}")
+        partes.append("   -> Prevalece Positiva (fuente oficial)")
     elif siniestro_pos_id and siniestro_pos_id != "[SIN DATO]":
-        partes.append(f"✅ Siniestro: {siniestro_pos_id} (Positiva)")
+        partes.append(f"[OK] Siniestro: {siniestro_pos_id} (Positiva)")
         if siniestro_medi == "[SIN DATO]" or not siniestro_medi:
-            partes.append("   ⚠️ No disponible en Medifolios")
+            partes.append("   [!] No disponible en Medifolios")
     else:
-        partes.append("⚠️ Siniestro no disponible en ningún portal")
+        partes.append("[!] Siniestro no disponible en ningún portal")
 
     nombre_medi = medi.get("nombre1") or medi.get("nombre", "")
     apellido_medi = medi.get("apellido1", "")
     nombre = f"{nombre_medi} {apellido_medi}".strip()
     if nombre:
-        partes.append(f"✅ Paciente: {nombre}")
+        partes.append(f"[OK] Paciente: {nombre}")
     if medi.get("telefono"):
-        partes.append(f"✅ Teléfono: {medi['telefono']}")
+        partes.append(f"[OK] Teléfono: {medi['telefono']}")
     if medi.get("direccion"):
-        partes.append(f"✅ Dirección: {medi['direccion']}")
+        partes.append(f"[OK] Dirección: {medi['direccion']}")
 
     discrepancias = datos.get("_meta", {}).get("discrepancias", [])
     for d in discrepancias:
-        partes.append(f"❌ {d.get('campo', 'desconocido')}: Medifolios={d.get('medifolios','?')} vs Positiva={d.get('positiva','?')}")
+        partes.append(f"[X] {d.get('campo', 'desconocido')}: Medifolios={d.get('medifolios','?')} vs Positiva={d.get('positiva','?')}")
         if d.get("resolucion"):
-            partes.append(f"   → {d['resolucion']}")
+            partes.append(f"   -> {d['resolucion']}")
 
     if not partes:
-        partes.append("ℹ️ No hay datos verificados disponibles")
+        partes.append("ℹ No hay datos verificados disponibles")
 
     fecha = datos.get("_meta", {}).get("extraido_en", "")
-    header = f"📋 DATOS VERIFICADOS (extraído: {fecha})" if fecha else "📋 DATOS VERIFICADOS"
-    return f"\n\n═══════════════════════════════\n{header}\n" + "\n".join(partes) + "\n═══════════════════════════════\n"
+    header = f" DATOS VERIFICADOS (extraído: {fecha})" if fecha else " DATOS VERIFICADOS"
+    return f"\n\n\n{header}\n" + "\n".join(partes) + "\n\n"
 
 
 def _construir_contexto_sistema() -> str:
-    """
-    Captura el estado actual del sistema para inyectar al LLM.
-    Tomy sabe que hay en el dashboard antes de responder.
-    Rapido: solo lee SQLite y cuenta archivos, sin I/O pesada.
-    """
-    lineas = ["═══ ESTADO ACTUAL DEL SISTEMA ═══"]
-
-    # 1. Tareas activas en el workflow
+    """Captura estado actual del sistema para inyectar al LLM."""
+    lineas = ["=== ESTADO ACTUAL DEL SISTEMA ==="]
+    
     try:
         db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
         from backend.task_db import TaskDB
         db = TaskDB(db_path)
         activas = db.listar_activos()
         if activas:
-            lineas.append(f"\n🔄 PROCESANDO AHORA ({len(activas)} tarea(s)):")
-            PASOS = {
-                1: "Transcribiendo audio", 2: "Buscando datos del paciente",
-                3: "Leyendo notas", 4: "Leyendo formatos subidos",
-                5: "Sintetizando (IA razonadora)", 6: "Generando 7 formatos",
-                7: "Verificando calidad", 8: "Convirtiendo a PDF", 9: "Notificando",
-            }
+            lineas.append(f"\nPROCESANDO AHORA ({len(activas)} tarea(s)):")
+            PASOS = {1:"Transcribiendo audio",2:"Buscando datos",3:"Leyendo notas",
+                     4:"Leyendo formatos",5:"Sintetizando (IA)",6:"Verificando portales",
+                     7:"Generando formatos",8:"QA",9:"PDF",10:"Notificando"}
             for t in activas[:3]:
-                paso_label = PASOS.get(t.get("paso_actual", 0), t.get("estado", "?"))
-                lineas.append(f"  • CC {t['paciente_cc']}: {paso_label} (paso {t.get('paso_actual','?')}/9)")
+                label = PASOS.get(t.get("paso_actual",0), t.get("estado","?"))
+                lineas.append(f"  CC {t['paciente_cc']}: {label} (paso {t.get('paso_actual','?')}/10)")
         else:
-            lineas.append("\n⚡ Sin tareas activas — sistema libre")
-    except Exception as e:
-        lineas.append(f"\n[Tareas: no disponible — {e}]")
+            lineas.append("\nSin tareas activas - sistema libre")
+    except Exception:
+        lineas.append("\n[Tareas: no disponible]")
 
-    # 2. Agenda del dia
     try:
         from backend.notificador import api_get_agenda
         agenda = api_get_agenda()
         if agenda and agenda.get("citas"):
             citas = agenda["citas"]
-            lineas.append(f"\n📅 AGENDA HOY ({len(citas)} cita(s)):")
+            lineas.append(f"\nAGENDA HOY ({len(citas)} cita(s)):")
             for c in citas[:6]:
-                nombre = c.get("paciente", "?")
-                hora = c.get("hora", "?")
-                cc_cita = c.get("cc", "")
-                procesado = "✅" if c.get("procesado") else "⏳"
-                lineas.append(f"  {procesado} {hora} — {nombre}" + (f" (CC {cc_cita})" if cc_cita else ""))
+                lineas.append(f"  {c.get('hora','?')} - {c.get('paciente','?')}")
         else:
-            lineas.append("\n📅 AGENDA: No hay agenda cargada para hoy")
+            lineas.append("\nAGENDA: No hay agenda cargada")
     except Exception:
-        lineas.append("\n📅 AGENDA: no disponible")
+        pass
 
-    # 3. Pacientes en el sistema
     try:
         import glob as _glob
         storage = Path(os.getenv("STORAGE_DIR", "./storage"))
         data_dir = storage / "data"
         jsons = _glob.glob(str(data_dir / "*-completo.json"))
-        lineas.append(f"\n👥 PACIENTES EN SISTEMA: {len(jsons)}")
-        if len(jsons) <= 5:
-            for jpath in jsons:
-                try:
-                    import json as _json
-                    with open(jpath, encoding="utf-8") as f:
-                        d = _json.load(f)
-                    nombre = d.get("paciente", {}).get("nombre", "?")
-                    cc_p = d.get("paciente", {}).get("documento", "?")
-                    lineas.append(f"  • {nombre} (CC {cc_p})")
-                except Exception:
-                    pass
+        lineas.append(f"\nPACIENTES: {len(jsons)} en sistema")
     except Exception:
         pass
 
-    # 4. Formatos generados hoy y recientes
     try:
         docs_dir = storage / "docs"
-        from datetime import date
-        hoy_str = date.today().strftime("%Y-%m-%d")
-        docs_hoy = []
-        docs_recientes = []
-        for f in sorted(docs_dir.glob("*.docx"), key=lambda x: x.stat().st_mtime, reverse=True):
-            mtime_str = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d")
-            if mtime_str == hoy_str:
-                docs_hoy.append(f.name)
-            docs_recientes.append(f"{f.name} ({mtime_str})")
-            if len(docs_recientes) >= 5:
-                break
-        if docs_hoy:
-            lineas.append(f"\n📄 FORMATOS GENERADOS HOY: {len(docs_hoy)}")
-            for d in docs_hoy[:5]:
-                lineas.append(f"  • {d}")
-        if docs_recientes and not docs_hoy:
-            lineas.append(f"\n📄 FORMATOS RECIENTES:")
-            for d in docs_recientes[:3]:
-                lineas.append(f"  • {d}")
+        docs = sorted(docs_dir.glob("*.docx"), key=lambda x: x.stat().st_mtime, reverse=True)
+        if docs:
+            lineas.append(f"\nFORMATOS RECIENTES:")
+            for d in docs[:5]:
+                lineas.append(f"  {d.name}")
     except Exception:
         pass
 
-    # 5. Feature flags
     tomy_on = os.getenv("TOMY_COMPLETO_ENABLED", "false").lower() == "true"
-    fase_a = os.getenv("FASE_A_ENABLED", "false").lower() == "true"
-    lineas.append(f"\n⚙️ Pipeline: {'✅ activo' if tomy_on else '❌ inactivo (TOMY_COMPLETO_ENABLED=false)'}")
-    if fase_a:
-        lineas.append("⚙️ Extraccion portales: ✅ activa")
+    lineas.append(f"\nPipeline: {'ACTIVO' if tomy_on else 'INACTIVO'}")
 
     return "\n".join(lineas)
 
 
-# ═══ PORTAL INTENT DETECTION ═══════════════════════════════════
+# --- Intent detection ---
 
-PORTAL_KEYWORDS = {
-    "verificar": [
-        "verifica", "verifica", "verificar", "compara", "comparar", "coincide",
-        "chequea", "confronta", "revisa en el portal", "que dice positiva",
-        "que dice medifolios", "bate contra", "cruza con", "corrobora",
-        "esta bien el", "esta correcto el", "concuerda", "confirma en",
-        "consulta el portal", "extrae de", "busca en",
-    ],
-    "aprender": [
-        "guarda esto", "recuerda que", "siempre va a ser asi",
-        "el correcto es", "el que vale es", "usa ese", "ese es el bueno",
-    ],
-}
+PORTAL_KEYWORDS = [
+    "verifica", "verificar", "compara", "comparar", "coincide",
+    "chequea", "confronta", "revisa en el portal", "que dice positiva",
+    "que dice medifolios", "cruza con", "corrobora", "esta bien el",
+    "busca en positiva", "extrae de",
+]
 
 CORRECCION_KEYWORDS = [
-    "corrige", "correge", "corregir", "cambia", "cambiar", "actualiza", "actualizar",
+    "corrige", "cambia", "cambiar", "actualiza", "actualizar",
     "modifica", "el nombre es", "el dato correcto es", "esta mal el",
-    "esta equivocado", "reemplaza", "reemplazar", "pon", "ponle",
-    "quita", "agrega", "agrega", "el correcto es",
+    "reemplaza", "pon", "quita", "agrega",
 ]
 
 
-def _detectar_intencion_portal(mensaje: str, cc: str = "") -> dict or None:
-    """Detecta si el mensaje requiere verificacion en portales."""
+def _detectar_intencion_portal(mensaje: str, cc: str = ""):
     msg_lower = mensaje.lower()
-    if any(k in msg_lower for k in PORTAL_KEYWORDS["verificar"]):
-        return {
-            "tipo": "verificar",
-            "cc": cc or _extraer_cc_de_texto(mensaje),
-            "instruccion": mensaje,
-            "forzar": "actualiza" in msg_lower or "de nuevo" in msg_lower or "hoy" in msg_lower,
-        }
+    if any(k in msg_lower for k in PORTAL_KEYWORDS):
+        return {"tipo": "verificar", "cc": cc or _extraer_cc_de_texto(mensaje),
+                "forzar": "actualiza" in msg_lower or "de nuevo" in msg_lower}
     return None
 
 
 def _es_intencion_correccion(mensaje: str) -> bool:
-    msg_lower = mensaje.lower()
-    return any(k in msg_lower for k in CORRECCION_KEYWORDS)
+    return any(k in mensaje.lower() for k in CORRECCION_KEYWORDS)
 
 
 def _extraer_cc_de_texto(texto: str) -> str:
-    m = re.search(r"\b(\d{6,12})\b", texto.replace("'", "").replace(".", "").replace(",", ""))
+    m = re.search(r"\b(\d{6,12})\b", texto.replace("'","").replace(".","").replace(",",""))
     return m.group(1) if m else ""
 
 
 def _formatear_verificacion_para_llm(resultado: dict) -> str:
-    """Convierte resultado de verificacion en texto para el LLM."""
     cc = resultado.get("cc", "?")
-    lineas = [f"\n═══ VERIFICACION PORTALES — CC {cc} ═══"]
-
-    if resultado.get("parcial"):
-        lineas.append("⚠️ Verificacion parcial — un portal no respondio")
+    lineas = [f"\n=== VERIFICACION PORTALES - CC {cc} ==="]
     if resultado.get("error"):
-        lineas.append(f"❌ Error: {resultado['error']}")
+        lineas.append(f"ERROR: {resultado['error']}")
         return "\n".join(lineas)
-
     for campo in resultado.get("campos", []):
-        icono = "✅" if campo["coincide"] else "❌"
-        lineas.append(f"\n{icono} {campo['campo'].upper()}:")
-        lineas.append(f"   Medifolios: {campo['medifolios'] or '(sin dato)'}")
-        lineas.append(f"   Positiva:   {campo['positiva'] or '(sin dato)'}")
-
-    discs = resultado.get("discrepancias", [])
-    if discs:
-        lineas.append(f"\n⚠️ {len(discs)} DISCREPANCIA(S):")
-        for d in discs:
-            lineas.append(f"  {d.get('campo')}: Medifolios={d.get('medifolios')} vs Positiva={d.get('positiva')}")
-            if d.get("resolucion_conocida"):
-                lineas.append(f"  → {d['resolucion_conocida']}")
-    else:
-        lineas.append(f"\n✅ Datos coinciden — confianza {resultado.get('confianza',0)*100:.0f}%")
-
+        icono = "OK" if campo["coincide"] else "X"
+        lineas.append(f"{icono} {campo['campo']}: {campo['medifolios']} = {campo['positiva']}")
     return "\n".join(lineas)
 
 
 def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None) -> dict:
     """Procesa mensaje del chat. Soporta hasta 7 formatos por paciente."""
-    _log(f"═════ '{mensaje[:100]}' ═════")
+    _log(f" '{mensaje[:100]}' ")
     t_total = time.time()
 
     if not mensaje.strip():
-        return {"contenido": "¿En qué te ayudo, Sandra? 😊", "accion": None}
+        return {"contenido": "¿En qué te ayudo, Sandra? ", "accion": None}
 
     # 1. Workspace (siempre, rápido)
     workspace_files = _listar_workspace()
 
-    # 2. Detectar CC (sin limpiar espacios — mantener word boundaries)
+    # 2. Detectar CC (sin limpiar espacios -- mantener word boundaries)
     cc = paciente_cc
     if not cc:
         m = re.search(r'\b(\d{6,12})\b', mensaje.replace("'", "").replace(".", "").replace(",", ""))
@@ -1035,7 +958,7 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
             sugerir_extraccion = True
             _log(f"VERIFIED: sin datos para CC {cc}")
 
-    # 4. Buscar archivos — PRIMERO multi (todos los del paciente), luego individual
+    # 4. Buscar archivos -- PRIMERO multi (todos los del paciente), luego individual
     archivos_paciente = _buscar_archivos_paciente(cc=cc, mensaje=mensaje)
     
     if archivos_paciente and len(archivos_paciente) >= 3:
@@ -1072,54 +995,34 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
     if datos_verificados:
         doc_content = (doc_content or "") + _formatear_datos_verificados(datos_verificados)
 
-    # 5.5 VERIFICACION DE PORTALES — detectar intencion y ejecutar
+    # 5.5 Dame formatos - links reales, no inventar
+    if cc and any(kw in mensaje.lower() for kw in [
+        "dame los formatos", "pasame los formatos", "descargar formatos",
+        "manda los formatos", "los formatos", "documentos generados",
+    ]):
+        DOCS_DIR = Path(os.getenv("STORAGE_DIR", "./storage")) / "docs"
+        formatos_files = sorted(DOCS_DIR.glob(f"*{cc}*.docx"), key=lambda x: x.stat().st_mtime, reverse=True)
+        if formatos_files:
+            links = "\n".join(f"- [{f.name}](/api/download/{f.name})" for f in formatos_files[:10])
+            return {"contenido": f"Formatos para CC {cc}:\n\n{links}\n\nClick para descargar.", "accion": "formatos", "archivo": None}
+        else:
+            return {"contenido": f"No hay formatos generados para CC {cc}. Queres que procese un audio?", "accion": None}
+
+    # 5.6 Verificacion portales
     contexto_portal = ""
     intencion = _detectar_intencion_portal(mensaje, cc)
     if intencion and intencion.get("cc"):
-        _log(f"PORTAL: {intencion['tipo']} para CC {intencion['cc']}")
+        _log(f"PORTAL: verificar CC {intencion['cc']}")
         try:
             from backend.portal_verificador import PortalVerificador
             v = PortalVerificador()
-            resultado = v.verificar(
-                intencion["cc"],
-                forzar_extraccion=intencion.get("forzar", False),
-            )
+            resultado = v.verificar(intencion["cc"], forzar_extraccion=intencion.get("forzar", False))
             contexto_portal = _formatear_verificacion_para_llm(resultado)
         except Exception as e:
-            contexto_portal = f"\n⚠️ No pude verificar en portales: {e}\n"
-            _log(f"PORTAL: error {e}")
+            contexto_portal = f"\nNo pude verificar portales: {e}\n"
 
-    # 5.6 CORRECCION DE DATOS — detectar intencion y aplicar
-    respuesta_directa = None
-
-    # 5.6a DAME FORMATOS — devolver links reales, no inventar
-    if cc and any(kw in mensaje.lower() for kw in [
-        "dame los formatos", "pasame los formatos", "descargar formatos",
-        "manda los formatos", "muestrame los formatos", "quiero los formatos",
-        "los formatos", "descargar documentos", "documentos generados",
-    ]):
-        _log(f"FORMATOS: solicitados para CC {cc}")
-        formatos_files = sorted(
-            DOCS_DIR.glob(f"*{cc}*.docx"),
-            key=lambda x: x.stat().st_mtime, reverse=True
-        )
-        if formatos_files:
-            links = "\n".join(
-                f"- [{f.name}](/api/download/{f.name})"
-                for f in formatos_files[:10]
-            )
-            respuesta_directa = (
-                f"Acá tenés **{len(formatos_files)} formato(s)** para CC {cc}:\n\n"
-                f"{links}\n\n"
-                f"Click en cada uno para descargar. ¿Necesitás que revise o corrija algo?"
-            )
-        else:
-            respuesta_directa = f"No encontré formatos generados para CC {cc}. ¿Querés que procese un audio o un documento?"
-
-    if respuesta_directa:
-        return {"contenido": respuesta_directa, "accion": "formatos", "archivo": None}
+    # 5.7 Correccion de datos
     if cc and _es_intencion_correccion(mensaje):
-        _log(f"CORRECCION: detectada para CC {cc}")
         try:
             from backend.correction_resolver import interpretar_correccion
             from backend.aplicador_correccion import aplicar_correccion
@@ -1129,91 +1032,28 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
                 if resultado_corr.get("ok"):
                     formatos = resultado_corr.get("formatos_regenerados", [])
                     links = "\n".join(f"- [{f}](/api/download/{f})" for f in formatos)
-                    respuesta_directa = (
-                        f"✅ Correccion aplicada: `{correccion['campo']}` → `{correccion['valor']}`\n\n"
-                        + (f"Regenere {len(formatos)} formato(s):\n{links}\n\n" if links else "")
-                        + "Algo mas que corregir?"
-                    )
+                    return {
+                        "contenido": f"OK. Corregi '{correccion['campo']}' a '{correccion['valor']}'.\n\n{links}",
+                        "accion": "correccion", "archivo": None
+                    }
         except Exception as e:
-            _log(f"CORRECCION: fallo {e}")
+            _log(f"CORRECCION: error {e}")
 
-    if respuesta_directa:
-        return {"contenido": respuesta_directa, "accion": "correccion", "archivo": None}
-
-    # 5.7 PROCESAR DOCUMENTO DESDE CARPETA — buscar, leer, completar, verificar
-    if cc and doc_content and any(kw in mensaje.lower() for kw in [
-        "completa este", "completame este", "completa el", "organiza este",
-        "organizame este", "corrige este", "verifica este", "revisa este",
-        "procesa este", "arregla este", "termina este",
-    ]):
-        _log(f"PROCESAR DOC: detectado para CC {cc}")
-        try:
-            from backend.workflow_steps.verificar_portales import ejecutar as verificar_portales
-            from backend.workflow_steps.sintetizar_maestro import ejecutar as sintetizar
-
-            # 1. Leer el documento encontrado (ya esta en doc_content)
-            archivo_nombre_doc = archivo_nombre or "documento"
-
-            # 2. Sintetizar datos del documento (sin transcripcion de audio)
-            sintesis_doc = sintetizar(
-                transcripcion={"texto": doc_content, "segmentos": []},
-                datos_portales={},
-                notas_crudas=[],
-                formatos_subidos=[],
-                paciente_cc=cc,
-            )
-            datos_doc = sintesis_doc.get("datos_clinicos") or {}
-            if sintesis_doc.get("ok") and datos_doc:
-                # 3. Verificar contra portales
-                verif = verificar_portales(datos_clinicos=datos_doc, paciente_cc=cc)
-                resumen = verif.get("resumen", {})
-
-                # 4. Generar formatos con datos enriquecidos
-                from backend.workflow_steps.generar_formatos import ejecutar as generar_f
-                gen = generar_f(datos_clinicos=datos_doc, task_id="doc_" + cc, verificaciones=verif.get("verificaciones", []))
-                formatos_gen = gen.get("formatos_generados", [])
-
-                links = "\n".join(
-                    f"- [{f['archivo'].split('/')[-1]}](/api/download/{f['archivo'].split('/')[-1]})"
-                    for f in formatos_gen
-                ) if formatos_gen else ""
-
-                respuesta_directa = (
-                    f"✅ Procese `{archivo_nombre_doc}` para CC {cc}.\n\n"
-                    f"🔍 Verificacion portales: {resumen.get('confirmados',0)}/{resumen.get('total',0)} confirmados"
-                    + (f", {resumen.get('discrepancias',0)} discrepancias" if resumen.get('discrepancias', 0) else "")
-                    + (f", {resumen.get('faltantes',0)} faltantes" if resumen.get('faltantes', 0) else "")
-                    + (f"\n\nFormatos generados:\n{links}" if links else "")
-                    + "\n\n¿Algo mas que necesites?"
-                )
-            else:
-                respuesta_directa = f"No pude extraer datos suficientes de `{archivo_nombre_doc}`. ¿Me das mas contexto?"
-
-        except Exception as e:
-            _log(f"PROCESAR DOC: error {e}")
-            respuesta_directa = f"No pude procesar el documento: {e}"
-
-    if respuesta_directa:
-        return {"contenido": respuesta_directa, "accion": "documento", "archivo": archivo_nombre}
-
-    # 6. Armar mensaje final con contexto de portal
+    # 6. Armar mensaje final
     if contexto_portal:
         mensaje_con_sugerencia = mensaje + "\n\n" + contexto_portal
     elif sugerir_extraccion:
-        mensaje_con_sugerencia = mensaje + (
-            "\n\n💡 No tengo datos verificados de este paciente todavia. "
-            "Quieres que verifique en Medifolios y Positiva ahora? (~2 min)."
-        )
+        mensaje_con_sugerencia = mensaje + "\n\nNo tengo datos verificados de este paciente. Queres que verifique en Medifolios y Positiva?"
     else:
         mensaje_con_sugerencia = mensaje
 
-    # 7. Llamar LLM con todo el contexto
+    # 7. Llamar LLM
     ctx_sistema = _construir_contexto_sistema()
     respuesta = _llamar_llm(mensaje_con_sugerencia, cc, doc_content, workspace_files,
                             historial=historial, ctx_sistema=ctx_sistema)
     
     total_time = time.time() - t_total
-    _log(f"═════ Listo en {total_time:.1f}s ═════")
+    _log(f" Listo en {total_time:.1f}s ")
 
     return {
         "contenido": respuesta,

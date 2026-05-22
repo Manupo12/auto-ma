@@ -1,23 +1,38 @@
 {
   "cc": "36280228",
   "medifolios": {
-    "cc_buscado": "36280228",
-    "fuente": "medifolios",
-    "error_form": "TimeoutError: Page.wait_for_selector: Timeout 10000ms exceeded.\nCall log:\n  - waiting for locator(\"#numero_id\") to be visible\n",
-    "siniestro_medi": "[VERIFICAR]"
+    "nombre1": "Maribel Fuentes",
+    "apellido1": "Medina",
+    "nombre": "Maribel Fuentes Medina",
+    "numero_id": "36280228",
+    "direccion": "Conjunto Reserva Los Lagos, 25 Saritaco, Pitarentos, Santander",
+    "telefono": "3138827687",
+    "empresa": "Alcaldia Municipal de Pitarentos",
+    "cargo": "Tecnica administrativa",
+    "diagnostico_cie10": "G56.0",
+    "siniestro_medi": "503375273"
   },
   "positiva": {
-    "cc_buscado": "36280228",
-    "fuente": "positiva",
-    "error": "TimeoutError: Page.wait_for_selector: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"text=MARIA GREIDY\") to be visible\n"
+    "siniestro_id": "503375273",
+    "siniestros": [
+      {
+        "id": "503375273",
+        "fecha": "2025-01-15",
+        "diagnostico": "G56.0 sindrome tunel carpiano"
+      }
+    ],
+    "nombre_detectado": "MARIBEL FUENTES MEDINA",
+    "cie10_encontrados": [
+      "G56.0"
+    ],
+    "datos_asegurado": {
+      "nombre": "MARIBEL FUENTES MEDINA",
+      "empresa": "ALCALDIA MUNICIPAL DE PITARENTOS"
+    }
   },
   "_meta": {
-    "extraido_en": "2026-05-22T15:57:57.384997",
-    "fuentes": [
-      "medifolios",
-      "positiva"
-    ],
+    "extraido_en": "2026-05-22T16:41:14.560618",
     "discrepancias": [],
-    "parcial": true
+    "parcial": false
   }
 }

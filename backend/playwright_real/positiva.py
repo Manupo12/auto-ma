@@ -1,137 +1,139 @@
 """
-Extractor real ARL Positiva.
+Extractor real ARL Positiva — actualizado Mayo 2026.
 
-Consulta Integral → 6 pestañas:
-  DATOS ASEGURADO, SINIESTROS, REHABILITACIÓN INTEGRAL,
-  GESTIÓN AUTORIZACIONES, EVOLUCIONES, BITACORAS
+Flujo:
+  1. CONSULTA INTEGRAL: buscar paciente → extraer siniestros, CIE-10, datos asegurado
+  2. RHI Consultar Caso: datos de rehabilitacion
 """
+import re
 from typing import Dict, List
 from playwright.async_api import Page
 
-from backend.playwright_real import selectores as S
 
+async def _buscar_en_consulta_integral(page: Page, cc: str) -> bool:
+    """Navega a CONSULTA INTEGRAL y busca paciente por CC."""
+    await page.goto("https://positivacuida.positiva.gov.co/consultas/consulta-caso/consultaCaso.page", timeout=30000)
+    await page.wait_for_timeout(5000)
 
-async def _buscar_paciente(page: Page, cc: str) -> bool:
-    """Va a Consulta Integral y busca por CC."""
     try:
-        await page.click(S.POS_CONSULTA_INTEGRAL["menu"], timeout=10000)
-        await page.wait_for_selector(S.POS_CONSULTA_INTEGRAL["numero_id_input"], timeout=10000)
-        await page.fill(S.POS_CONSULTA_INTEGRAL["numero_id_input"], cc)
-        await page.click(S.POS_CONSULTA_INTEGRAL["buscar_button"])
-        await page.wait_for_load_state("networkidle", timeout=15000)
-        return True
+        cc_input = await page.wait_for_selector(
+            "input[name*='numeroIdentificacion'], input[name*='numeroDocumento']", timeout=8000
+        )
+        await cc_input.fill(cc)
     except Exception:
         return False
 
+    for b in await page.query_selector_all("button, input[type=submit]"):
+        t = (await b.text_content() or "").strip().lower()
+        if "buscar" in t or "consultar" in t:
+            await b.click()
+            break
+    else:
+        await cc_input.press("Enter")
 
-async def _click_tab(page: Page, tab_key: str) -> bool:
-    """Click en una pestaña de Consulta Integral."""
-    try:
-        selector = S.POS_TABS[tab_key]
-        await page.click(selector, timeout=10000)
-        await page.wait_for_load_state("networkidle", timeout=10000)
-        return True
-    except Exception:
-        return False
-
-
-async def _extraer_tabla_siniestros(page: Page) -> List[Dict]:
-    """Extrae filas de la tabla SINIESTROS."""
-    siniestros = []
-    try:
-        filas = await page.locator(S.POS_TABLA_SINIESTROS["filas"]).all()
-        for fila in filas:
-            celdas = await fila.locator("td").all_text_contents()
-            if len(celdas) >= 9:
-                siniestros.append({
-                    "id": celdas[S.POS_TABLA_SINIESTROS["col_siniestro"] - 1].strip(),
-                    "fecha": celdas[S.POS_TABLA_SINIESTROS["col_fecha"] - 1].strip(),
-                    "tipo_evento": celdas[S.POS_TABLA_SINIESTROS["col_tipo_evento"] - 1].strip(),
-                    "pcl": celdas[S.POS_TABLA_SINIESTROS["col_pcl"] - 1].strip(),
-                    "diagnostico": celdas[S.POS_TABLA_SINIESTROS["col_diagnostico"] - 1].strip(),
-                })
-    except Exception:
-        pass
-    return siniestros
+    await page.wait_for_timeout(8000)
+    return True
 
 
-async def _extraer_datos_asegurado(page: Page) -> Dict:
-    """Extrae datos visibles de la pestaña DATOS ASEGURADO."""
+async def _extraer_datos_visibles(page: Page) -> Dict:
+    """Extrae todos los datos visibles del HTML usando patrones de texto."""
+    body = await page.text_content("body") or ""
     datos = {}
-    try:
-        label_value_pairs = await page.locator(".form-group, .row, tr").all()
-        for pair in label_value_pairs[:15]:
-            text = (await pair.text_content() or "").strip()
-            if ":" in text:
-                parts = text.split(":", 1)
-                datos[parts[0].strip()] = parts[1].strip()
-    except Exception:
-        pass
+
+    siniestro_match = re.search(r"[Nn][oO]\.?\s*[Ss]iniestro[:\s]*(\d{7,12})", body)
+    if siniestro_match:
+        datos["siniestro_id"] = siniestro_match.group(1)
+
+    fecha_match = re.search(r"[Ff]echa\s*[Ss]iniestro[:\s]*(\d{2,4}[-/]\d{2}[-/]\d{2,4})", body)
+    if fecha_match:
+        datos["fecha_siniestro"] = fecha_match.group(1)
+
+    cie10_matches = re.findall(r'([A-Z]\d{2,3}(?:\.\d)?)\s*[-–]\s*([A-Za-záéíóúñ ]{5,60})', body)
+    if cie10_matches:
+        datos["diagnosticos"] = [{"codigo": m[0], "descripcion": m[1].strip()} for m in cie10_matches[:3]]
+    else:
+        cie10_simple = re.findall(r'\b([A-Z]\d{2,3}(?:\.\d)?)\b', body)
+        if cie10_simple:
+            datos["cie10_candidatos"] = list(set(cie10_simple))[:5]
+
+    nombre_match = re.search(r"([A-ZÁÉÍÓÚÑ]{3,30}\s+[A-ZÁÉÍÓÚÑ]{3,30}\s+[A-ZÁÉÍÓÚÑ]{3,30})", body)
+    if nombre_match:
+        datos["nombre_detectado"] = nombre_match.group(1)
+
+    datos["texto_completo_len"] = len(body)
     return datos
 
 
-async def _extraer_tabla_generica(page: Page) -> List[Dict]:
-    """Extrae cualquier tabla HTML como lista de dicts."""
-    filas_data = []
+async def _buscar_en_rhi(page: Page, cc: str) -> Dict:
+    """Busca en RHI Consultar Caso."""
+    rhi = {}
     try:
-        filas = await page.locator("table tbody tr").all()
-        for fila in filas:
-            celdas = await fila.locator("td").all_text_contents()
-            if celdas:
-                filas_data.append({f"col{i}": c.strip() for i, c in enumerate(celdas)})
+        await page.goto("https://positivacuida.positiva.gov.co/web/rhi/consultarCaso/init", timeout=30000)
+        await page.wait_for_timeout(5000)
+
+        doc_input = await page.wait_for_selector("#numeroDocumento", timeout=5000)
+        await doc_input.fill(cc)
+
+        for b in await page.query_selector_all("button"):
+            t = (await b.text_content() or "").strip().lower()
+            if "buscar" in t or "consultar" in t:
+                await b.click()
+                break
+
+        await page.wait_for_timeout(8000)
+        body = await page.text_content("body") or ""
+
+        matriculas = re.findall(r"[Mm]atr[ií]cula[:\s]*(\d+)", body)
+        if matriculas:
+            rhi["matricula"] = matriculas[0]
+
+        fechas = re.findall(r"(\d{2}/\d{2}/\d{4})", body)
+        if fechas:
+            rhi["fechas_encontradas"] = fechas[:5]
+
     except Exception:
         pass
-    return filas_data
-
-
-async def _extraer_panel_activo(page: Page) -> str:
-    """Extrae texto del panel visible después de clickear una pestaña."""
-    try:
-        content = await page.locator(".tab-pane.active, .panel-body, main").text_content(timeout=5000)
-        return (content or "").strip()[:1500]
-    except Exception:
-        return ""
+    return rhi
 
 
 async def get_paciente_completo(page: Page, cc: str) -> Dict:
     """
-    Función principal. Navega las 6 pestañas y extrae datos.
+    Funcion principal. Extrae datos del paciente desde Positiva.
     """
     datos = {"cc_buscado": cc, "fuente": "positiva"}
 
-    encontrado = await _buscar_paciente(page, cc)
+    encontrado = await _buscar_en_consulta_integral(page, cc)
     if not encontrado:
-        datos["error_busqueda"] = "paciente no encontrado en Positiva"
+        datos["error_busqueda"] = "No se pudo buscar en Consulta Integral"
         return datos
 
-    # 1. Siniestros
-    if await _click_tab(page, "siniestros"):
-        siniestros = await _extraer_tabla_siniestros(page)
-        datos["siniestros"] = siniestros
-        if siniestros:
-            datos["siniestro_principal"] = siniestros[0]
-    else:
-        datos["error_siniestros"] = "no se pudo acceder a la pestaña SINIESTROS"
+    visible = await _extraer_datos_visibles(page)
+    datos.update(visible)
 
-    # 2. Datos asegurado
-    if await _click_tab(page, "datos_asegurado"):
-        datos_aseg = await _extraer_datos_asegurado(page)
-        datos.update(datos_aseg)
+    if "siniestro_id" not in datos or not datos.get("cie10_candidatos"):
+        rhi_data = await _buscar_en_rhi(page, cc)
+        datos["rhi"] = rhi_data
 
-    # 3-6. Pestañas restantes: extraer tablas + texto visible
-    for tab_key, data_key in [
-        ("rehab_integral", "rehabilitacion_integral"),
-        ("gestion_aut", "autorizaciones"),
-        ("evoluciones", "evoluciones"),
-        ("bitacoras", "bitacoras"),
-    ]:
-        if await _click_tab(page, tab_key):
-            tablas = await _extraer_tabla_generica(page)
-            if tablas:
-                datos[data_key] = tablas
-            else:
-                texto = await _extraer_panel_activo(page)
-                if texto:
-                    datos[data_key] = texto
+    # Buscar en SINIESTROS tab si existe
+    try:
+        for tab_label in ["SINIESTROS", "Siniestros", "siniestros"]:
+            tabs = await page.query_selector_all(f"a:has-text('{tab_label}'), li:has-text('{tab_label}')")
+            if tabs:
+                await tabs[0].click()
+                await page.wait_for_timeout(5000)
+                break
+
+        body2 = await page.text_content("body") or ""
+
+        siniestro_ids = re.findall(r"(\d{8,12})", body2)
+        siniestro_ids = [s for s in siniestro_ids if s != cc and len(s) >= 8][:5]
+        if siniestro_ids and "siniestro_id" not in datos:
+            datos["siniestro_id"] = siniestro_ids[0]
+
+        cie10_new = list(set(re.findall(r'\b([A-Z]\d{2,3}(?:\.\d)?)\b', body2)))
+        if cie10_new:
+            datos["cie10_encontrados"] = cie10_new[:5]
+    except Exception:
+        pass
 
     return datos

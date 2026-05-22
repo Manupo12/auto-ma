@@ -762,6 +762,59 @@ def estado_extraccion_async(task_id: str):
     return {"ok": True, "task_id": task_id, **estado}
 
 
+# ─── Portal Verificador ──────────────────────────────────────
+
+class PortalVerifRequest(BaseModel):
+    cc: str
+    forzar: bool = False
+
+
+class PortalAprenderRequest(BaseModel):
+    cc: str
+    campo: str
+    valor_correcto: str
+    fuente: str = "sandra"
+
+
+@app.post("/api/portal/verificar")
+async def portal_verificar(req: PortalVerifRequest):
+    """Verificacion cruzada Medifolios vs Positiva vs JSON local."""
+    from backend.portal_verificador import PortalVerificador
+    v = PortalVerificador()
+    resultado = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: v.verificar(req.cc, req.forzar)
+    )
+    return {"ok": True, "verificacion": resultado}
+
+
+@app.post("/api/portal/aprender")
+def portal_aprender(req: PortalAprenderRequest):
+    """Sandra confirma que valor es correcto."""
+    from backend.portal_verificador import PortalVerificador
+    v = PortalVerificador()
+    v.aprender_correccion(req.cc, req.campo, req.valor_correcto, req.fuente)
+    return {"ok": True, "guardado": f"{req.campo} = {req.valor_correcto}"}
+
+
+@app.get("/api/portal/estado")
+async def portal_estado():
+    """Verifica si los portales son accesibles."""
+    import httpx
+    resultados = {}
+    urls = {
+        "medifolios": "https://www.server0medifolios.net/",
+        "positiva": "https://positivacuida.positiva.gov.co/cas/login",
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for portal, url in urls.items():
+            try:
+                r = await client.get(url)
+                resultados[portal] = {"accesible": r.status_code < 500, "status": r.status_code}
+            except Exception as e:
+                resultados[portal] = {"accesible": False, "error": str(e)[:60]}
+    return {"ok": True, "portales": resultados}
+
+
 # ── Endpoints de Cron ──────────────────────────────────────────────
 
 @app.get("/api/cron/estado")

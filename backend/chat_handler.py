@@ -928,6 +928,83 @@ def _construir_contexto_sistema() -> str:
     return "\n".join(lineas)
 
 
+# ═══ PORTAL INTENT DETECTION ═══════════════════════════════════
+
+PORTAL_KEYWORDS = {
+    "verificar": [
+        "verifica", "verifica", "verificar", "compara", "comparar", "coincide",
+        "chequea", "confronta", "revisa en el portal", "que dice positiva",
+        "que dice medifolios", "bate contra", "cruza con", "corrobora",
+        "esta bien el", "esta correcto el", "concuerda", "confirma en",
+        "consulta el portal", "extrae de", "busca en",
+    ],
+    "aprender": [
+        "guarda esto", "recuerda que", "siempre va a ser asi",
+        "el correcto es", "el que vale es", "usa ese", "ese es el bueno",
+    ],
+}
+
+CORRECCION_KEYWORDS = [
+    "corrige", "correge", "corregir", "cambia", "cambiar", "actualiza", "actualizar",
+    "modifica", "el nombre es", "el dato correcto es", "esta mal el",
+    "esta equivocado", "reemplaza", "reemplazar", "pon", "ponle",
+    "quita", "agrega", "agrega", "el correcto es",
+]
+
+
+def _detectar_intencion_portal(mensaje: str, cc: str = "") -> dict or None:
+    """Detecta si el mensaje requiere verificacion en portales."""
+    msg_lower = mensaje.lower()
+    if any(k in msg_lower for k in PORTAL_KEYWORDS["verificar"]):
+        return {
+            "tipo": "verificar",
+            "cc": cc or _extraer_cc_de_texto(mensaje),
+            "instruccion": mensaje,
+            "forzar": "actualiza" in msg_lower or "de nuevo" in msg_lower or "hoy" in msg_lower,
+        }
+    return None
+
+
+def _es_intencion_correccion(mensaje: str) -> bool:
+    msg_lower = mensaje.lower()
+    return any(k in msg_lower for k in CORRECCION_KEYWORDS)
+
+
+def _extraer_cc_de_texto(texto: str) -> str:
+    m = re.search(r"\b(\d{6,12})\b", texto.replace("'", "").replace(".", "").replace(",", ""))
+    return m.group(1) if m else ""
+
+
+def _formatear_verificacion_para_llm(resultado: dict) -> str:
+    """Convierte resultado de verificacion en texto para el LLM."""
+    cc = resultado.get("cc", "?")
+    lineas = [f"\n═══ VERIFICACION PORTALES — CC {cc} ═══"]
+
+    if resultado.get("parcial"):
+        lineas.append("⚠️ Verificacion parcial — un portal no respondio")
+    if resultado.get("error"):
+        lineas.append(f"❌ Error: {resultado['error']}")
+        return "\n".join(lineas)
+
+    for campo in resultado.get("campos", []):
+        icono = "✅" if campo["coincide"] else "❌"
+        lineas.append(f"\n{icono} {campo['campo'].upper()}:")
+        lineas.append(f"   Medifolios: {campo['medifolios'] or '(sin dato)'}")
+        lineas.append(f"   Positiva:   {campo['positiva'] or '(sin dato)'}")
+
+    discs = resultado.get("discrepancias", [])
+    if discs:
+        lineas.append(f"\n⚠️ {len(discs)} DISCREPANCIA(S):")
+        for d in discs:
+            lineas.append(f"  {d.get('campo')}: Medifolios={d.get('medifolios')} vs Positiva={d.get('positiva')}")
+            if d.get("resolucion_conocida"):
+                lineas.append(f"  → {d['resolucion_conocida']}")
+    else:
+        lineas.append(f"\n✅ Datos coinciden — confianza {resultado.get('confianza',0)*100:.0f}%")
+
+    return "\n".join(lineas)
+
+
 def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None) -> dict:
     """Procesa mensaje del chat. Soporta hasta 7 formatos por paciente."""
     _log(f"═════ '{mensaje[:100]}' ═════")
@@ -993,11 +1070,54 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
     if datos_verificados:
         doc_content = (doc_content or "") + _formatear_datos_verificados(datos_verificados)
 
-    # 6. Si no hay datos y hay CC, agregar sugerencia
-    if sugerir_extraccion:
+    # 5.5 VERIFICACION DE PORTALES — detectar intencion y ejecutar
+    contexto_portal = ""
+    intencion = _detectar_intencion_portal(mensaje, cc)
+    if intencion and intencion.get("cc"):
+        _log(f"PORTAL: {intencion['tipo']} para CC {intencion['cc']}")
+        try:
+            from backend.portal_verificador import PortalVerificador
+            v = PortalVerificador()
+            resultado = v.verificar(
+                intencion["cc"],
+                forzar_extraccion=intencion.get("forzar", False),
+            )
+            contexto_portal = _formatear_verificacion_para_llm(resultado)
+        except Exception as e:
+            contexto_portal = f"\n⚠️ No pude verificar en portales: {e}\n"
+            _log(f"PORTAL: error {e}")
+
+    # 5.6 CORRECCION DE DATOS — detectar intencion y aplicar
+    respuesta_directa = None
+    if cc and _es_intencion_correccion(mensaje):
+        _log(f"CORRECCION: detectada para CC {cc}")
+        try:
+            from backend.correction_resolver import interpretar_correccion
+            from backend.aplicador_correccion import aplicar_correccion
+            correccion = interpretar_correccion(mensaje, cc)
+            if correccion and correccion.get("confianza", 0) >= 0.7:
+                resultado_corr = aplicar_correccion(cc, correccion)
+                if resultado_corr.get("ok"):
+                    formatos = resultado_corr.get("formatos_regenerados", [])
+                    links = "\n".join(f"- [{f}](/api/download/{f})" for f in formatos)
+                    respuesta_directa = (
+                        f"✅ Correccion aplicada: `{correccion['campo']}` → `{correccion['valor']}`\n\n"
+                        + (f"Regenere {len(formatos)} formato(s):\n{links}\n\n" if links else "")
+                        + "Algo mas que corregir?"
+                    )
+        except Exception as e:
+            _log(f"CORRECCION: fallo {e}")
+
+    if respuesta_directa:
+        return {"contenido": respuesta_directa, "accion": "correccion", "archivo": None}
+
+    # 6. Armar mensaje final con contexto de portal
+    if contexto_portal:
+        mensaje_con_sugerencia = mensaje + "\n\n" + contexto_portal
+    elif sugerir_extraccion:
         mensaje_con_sugerencia = mensaje + (
-            "\n\n💡 No tengo datos verificados de este paciente todavía. "
-            "¿Quieres que verifique en Medifolios y Positiva ahora? (~2 min)."
+            "\n\n💡 No tengo datos verificados de este paciente todavia. "
+            "Quieres que verifique en Medifolios y Positiva ahora? (~2 min)."
         )
     else:
         mensaje_con_sugerencia = mensaje

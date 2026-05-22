@@ -1,11 +1,9 @@
 """
-Extractor real de datos del paciente desde Medifolios.
+Extractor real de datos del paciente desde Medifolios — actualizado Mayo 2026.
 
-Usa los selectores documentados en skills/flujo-browser/references/.
-4 fuentes de datos:
-  1. Form pacientes (DATOS PERSONALES + DATOS GENERALES)
-  2. Historia Clínica → Visión Clínica
-  3. Agenda Citas → Popup → Observaciones (siniestro)
+Fuentes:
+  1. Form pacientes (SALUD_HOME/paciente): datos personales
+  2. Agenda Citas (SALUD_GESTIONCITAS/agenda_cita): siniestro en observaciones
 """
 import re
 from typing import Dict
@@ -15,62 +13,87 @@ from backend.playwright_real import selectores as S
 
 
 async def _navegar_a_pacientes(page: Page):
-    """Click en menú Pacientes."""
-    try:
-        await page.click(S.MEDI_PACIENTES["menu_pacientes"], timeout=10000)
-    except Exception:
-        pass
-    await page.wait_for_selector(S.MEDI_PACIENTES["numero_id_input"], timeout=10000)
+    """Navega a la pagina de Pacientes via URL directa."""
+    await page.goto(S.MEDI_PACIENTES["url"], timeout=30000)
+    await page.wait_for_timeout(4000)
 
 
 async def _cargar_paciente_en_form(page: Page, cc: str) -> bool:
-    """JS para forzar carga (Enter nativo no dispara)."""
-    ok = await page.evaluate(S.MEDI_JS_CARGAR_PACIENTE, cc)
-    if not ok:
+    """Llena CC y dispara busqueda del paciente."""
+    try:
+        await page.fill(S.MEDI_PACIENTES["numero_id_input"], cc)
+    except Exception:
         return False
-    await page.wait_for_function(
-        "() => { const f = document.getElementById('nombre1'); return f && f.value.length > 0; }",
-        timeout=15000,
-    )
-    return True
+
+    await page.wait_for_timeout(1000)
+
+    for b in await page.query_selector_all("button"):
+        t = (await b.text_content() or "").strip().lower()
+        if "buscar" in t:
+            await b.click()
+            break
+    else:
+        await page.press(S.MEDI_PACIENTES["numero_id_input"], "Enter")
+
+    await page.wait_for_timeout(5000)
+
+    nombre = await page.input_value(S.MEDI_PACIENTES["nombre1"], timeout=5000).catch(lambda: "")
+    return bool(nombre)
 
 
 async def _extraer_form_pacientes(page: Page) -> Dict:
-    """Extrae todos los campos del form de pacientes vía JS."""
-    return await page.evaluate(S.MEDI_JS_EXTRAER_FORM)
+    """Extrae campos del formulario de pacientes."""
+    campos = {}
+    field_ids = [
+        "nombre1", "nombre2", "apellido1", "apellido2", "numero_id",
+        "direccion", "telefono", "email", "fecha_nacimiento", "edad"
+    ]
+    for fid in field_ids:
+        try:
+            el = page.locator(f"#{fid}")
+            val = await el.input_value(timeout=2000)
+            if val and val.strip():
+                campos[fid] = val.strip()
+        except Exception:
+            pass
 
-
-async def _extraer_siniestro_de_agenda(page: Page, cc: str) -> str:
-    """Navega a Agenda Citas → busca cita del paciente → extrae siniestro de observaciones."""
     try:
-        await page.click(S.MEDI_AGENDA["menu_agenda"], timeout=10000)
-    except Exception:
-        return ""
-
-    try:
-        await page.select_option(S.MEDI_AGENDA["select_profesional"], S.MEDI_AGENDA["valor_sandra"])
-        await page.wait_for_load_state("networkidle", timeout=10000)
+        sexo = page.locator("select[name='sexo'], #sexo")
+        val = await sexo.input_value(timeout=2000)
+        if val:
+            campos["sexo"] = val
     except Exception:
         pass
 
+    return campos
+
+
+async def _extraer_siniestro_de_agenda(page: Page, cc: str) -> str:
+    """Navega a Agenda Citas y busca siniestro en observaciones."""
     try:
-        link_selector = S.MEDI_AGENDA["cita_link_template"].format(cc=cc)
-        await page.click(link_selector, timeout=5000)
+        await page.goto(S.MEDI_AGENDA["url"], timeout=30000)
+        await page.wait_for_timeout(5000)
     except Exception:
         return ""
 
-    try:
-        obs_el = await page.wait_for_selector(S.MEDI_AGENDA["popup_detalle_observaciones"], timeout=5000)
-        observaciones = await obs_el.input_value() if obs_el else ""
-        match = re.search(S.MEDI_REGEX_SINIESTRO, observaciones, re.IGNORECASE)
-        return match.group(1) if match else ""
-    except Exception:
-        return ""
+    body = await page.text_content("body") or ""
+
+    siniestro_match = re.search(
+        r"[Nn][Oo]\.?\s*[Ss]iniestro[:\s]*(\d{8,12})", body
+    )
+    if siniestro_match:
+        return siniestro_match.group(1)
+
+    siniestro_match = re.search(r"[Ss]iniestro[:\s]*(\d{8,12})", body)
+    if siniestro_match:
+        return siniestro_match.group(1)
+
+    return ""
 
 
 async def get_paciente_completo(page: Page, cc: str) -> Dict:
     """
-    Función principal. Retorna dict con campos extraídos + campos faltantes marcados.
+    Funcion principal. Extrae datos del paciente desde Medifolios.
     """
     datos = {"cc_buscado": cc, "fuente": "medifolios"}
 
@@ -81,7 +104,7 @@ async def get_paciente_completo(page: Page, cc: str) -> Dict:
             form = await _extraer_form_pacientes(page)
             datos.update(form)
         else:
-            datos["error_form"] = "no se pudo cargar el paciente"
+            datos["error_form"] = "paciente no encontrado o no cargado en el form"
     except Exception as e:
         datos["error_form"] = f"{type(e).__name__}: {e}"
 
@@ -92,7 +115,7 @@ async def get_paciente_completo(page: Page, cc: str) -> Dict:
         else:
             datos["siniestro_medi"] = "[VERIFICAR]"
     except Exception as e:
-        datos["error_siniestro"] = f"{type(e).__name__}: {e}"
+        datos["error_agenda"] = f"{type(e).__name__}: {e}"
         datos["siniestro_medi"] = "[VERIFICAR]"
 
     return datos

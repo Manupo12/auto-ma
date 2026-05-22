@@ -81,27 +81,50 @@ class PortalVerificador:
 
         datos_medi = datos_portal.get("medifolios", {})
         datos_pos = datos_portal.get("positiva", {})
-        siniestros_pos = datos_pos.get("siniestros", [])
-        siniestro_pos_id = siniestros_pos[0].get("id", "") if siniestros_pos else ""
+
+        # Siniestro: buscar en medifolios.siniestro_medi y positiva.siniestro_id/siniestros
+        siniestro_medi = datos_medi.get("siniestro_medi", "")
+        siniestro_pos = datos_pos.get("siniestro_id", "")
+        if not siniestro_pos:
+            siniestros_pos = datos_pos.get("siniestros", [])
+            siniestro_pos = siniestros_pos[0].get("id", "") if siniestros_pos else ""
+
+        # Nombre: buscar en medifolios.nombre1+apellido1 o medifolios.nombre, positiva.nombre_detectado
+        nombre_medi = datos_medi.get("nombre1", "") or datos_medi.get("nombre", "")
+        apellido_medi = datos_medi.get("apellido1", "")
+        if nombre_medi and apellido_medi:
+            nombre_medi = f"{nombre_medi} {apellido_medi}".strip()
+        nombre_pos = datos_pos.get("nombre_detectado", "") or (datos_pos.get("datos_asegurado") or {}).get("nombre", "")
+
+        # Diagnostico CIE-10
+        diag_medi = datos_medi.get("diagnostico_cie10", "")
+        diagnosticos_pos = datos_pos.get("diagnosticos", [])
+        cie10_pos = datos_pos.get("cie10_candidatos", []) or datos_pos.get("cie10_encontrados", [])
+        diag_pos = ""
+        if diagnosticos_pos:
+            diag_pos = diagnosticos_pos[0].get("codigo", "")
+        elif cie10_pos:
+            diag_pos = cie10_pos[0]
+
+        # Empresa
+        empresa_medi = datos_medi.get("empresa", "")
+        empresa_pos = (datos_pos.get("datos_asegurado") or {}).get("empresa", "")
 
         campos_verificados = [
-            ("nombre", datos_medi.get("nombre", ""),
-             (datos_pos.get("datos_asegurado") or {}).get("nombre", "")),
-            ("siniestro", datos_medi.get("siniestro_medi", ""), siniestro_pos_id),
-            ("diagnostico CIE-10", datos_medi.get("diagnostico_cie10", ""),
-             siniestros_pos[0].get("diagnostico", "") if siniestros_pos else ""),
-            ("empresa", datos_medi.get("empresa", ""),
-             (datos_pos.get("datos_asegurado") or {}).get("empresa", "")),
+            ("nombre", nombre_medi, nombre_pos),
+            ("siniestro", siniestro_medi, siniestro_pos),
+            ("diagnostico CIE-10", diag_medi, diag_pos),
+            ("empresa", empresa_medi, empresa_pos),
         ]
 
         n_ok = 0
         for nombre_campo, val_medi, val_pos in campos_verificados:
-            coincide = not val_medi or not val_pos or _norm(val_medi) == _norm(val_pos)
+            coincide = not val_medi or not val_pos or _norm(str(val_medi)) == _norm(str(val_pos))
             if coincide: n_ok += 1
             resultado["campos"].append({
                 "campo": nombre_campo,
-                "medifolios": val_medi,
-                "positiva": val_pos,
+                "medifolios": val_medi or "",
+                "positiva": val_pos or "",
                 "coincide": coincide,
             })
 

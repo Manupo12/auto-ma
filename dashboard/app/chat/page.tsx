@@ -373,6 +373,7 @@ export default function ChatPage() {
                     ? "bg-blue-600 text-white rounded-br-md"
                     : "bg-slate-100 text-slate-800 rounded-bl-md"
                 }`}
+                suppressHydrationWarning
               >
                 {msg.rol === "asistente" ? (
                   <div className="prose prose-sm max-w-none prose-slate">

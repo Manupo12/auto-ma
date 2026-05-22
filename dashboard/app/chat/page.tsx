@@ -58,16 +58,11 @@ function saveMessages(msgs: ChatMessage[]) {
 }
 
 export default function ChatPage() {
-  const [mensajes, setMensajes] = useState<ChatMessage[]>(() => {
-    const saved = loadMessages();
-    if (saved.length > 0) return saved;
-    const welcome: ChatMessage = {
-      rol: "asistente",
-      contenido: "Hola Sandra! Soy Tomy. Podes chatear conmigo para buscar pacientes, revisar formatos, o corregir documentos. Tambien podes **adjuntar un audio** de consulta para que procese todo automaticamente. En que te ayudo?",
-      timestamp: new Date().toISOString(),
-    };
-    return [welcome];
-  });
+  const [mensajes, setMensajes] = useState<ChatMessage[]>([{
+    rol: "asistente",
+    contenido: "Hola Sandra! Soy Tomy. Podes chatear conmigo para buscar pacientes, revisar formatos, o corregir documentos. Tambien podes **adjuntar un audio** de consulta para que procese todo automaticamente. En que te ayudo?",
+    timestamp: new Date().toISOString(),
+  }]);
   const [input, setInput] = useState("");
   const [enviando, setEnviando] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -75,6 +70,16 @@ export default function ChatPage() {
 
   const [pacienteCc, setPacienteCc] = useState("");
   const [pacientesHistorial, setPacientesHistorial] = useState<{cc: string; mensajes: number; ultimo: string}[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  // Cargar mensajes guardados solo en cliente
+  useEffect(() => {
+    const saved = loadMessages();
+    if (saved.length > 0) {
+      setMensajes(saved);
+    }
+    setLoaded(true);
+  }, []);
 
   const [ccAudio, setCcAudio] = useState("");
   const [mostrarCcAudio, setMostrarCcAudio] = useState(false);
@@ -85,11 +90,8 @@ export default function ChatPage() {
   const [fpCc, setFpCc] = useState("");
   const [fpArchivos, setFpArchivos] = useState<{ nombre: string; tamano_kb: number }[]>([]);
   const [fpLoading, setFpLoading] = useState(false);
-  const [isClient, setIsClient] = useState(false);
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => { setIsClient(true); }, []);
 
   useEffect(() => {
     saveMessages(mensajes);
@@ -442,7 +444,7 @@ export default function ChatPage() {
                 suppressHydrationWarning
               >
                 {msg.rol === "asistente" ? (
-                  isClient ? (
+                  loaded ? (
                     <div className="prose prose-sm max-w-none prose-slate">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {msg.contenido}

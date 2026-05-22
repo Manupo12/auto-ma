@@ -381,7 +381,7 @@ export default function ChatPage() {
                     <FileText size={10} /> {msg.archivo}
                   </p>
                 )}
-                <p className={`text-xs mt-1 ${msg.rol === "usuario" ? "text-blue-200" : "text-slate-400"}`}>
+                <p className={`text-xs mt-1 ${msg.rol === "usuario" ? "text-blue-200" : "text-slate-400"}`} suppressHydrationWarning>
                   {new Date(msg.timestamp).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
                 </p>
               </div>

@@ -34,10 +34,11 @@ const PASOS_LABELS: Record<number, string> = {
   3: "Leyendo tus notas...",
   4: "Leyendo formatos de referencia...",
   5: "Sintetizando (IA razonando, puede tardar 5+ min)...",
-  6: "Generando los 7 formatos...",
-  7: "Verificando calidad...",
-  8: "Convirtiendo a PDF...",
-  9: "Enviando notificacion por Telegram...",
+  6: "Verificando datos en portales (Medifolios + Positiva)...",
+  7: "Generando los 7 formatos...",
+  8: "Verificando calidad...",
+  9: "Convirtiendo a PDF...",
+  10: "Enviando notificacion por Telegram...",
 };
 
 function loadMessages(): ChatMessage[] {
@@ -115,11 +116,32 @@ export default function ChatPage() {
         if (task.estado === "listo") {
           clearInterval(intervalo);
           const formatos = task.resultado?.formatos_generados || [];
+          const verificacion = task.resultado?.verificacion;
+          const discrepancias = task.resultado?.discrepancias || [];
+
           let msg = `**Listo, Sandra!** Genere ${formatos.length} formatos para CC ${cc}:\n\n`;
           for (const f of formatos) {
             const nombre = f.archivo?.split("/").pop() || f.formato;
             msg += `- [${nombre}](/api/download/${encodeURIComponent(nombre)})\n`;
           }
+
+          if (verificacion) {
+            msg += `\n---\n**Verificacion de portales:**\n`;
+            msg += `- Confirmados: ${verificacion.confirmados || 0}\n`;
+            msg += `- Completados con portal: ${verificacion.completados_portal || 0}\n`;
+            if (verificacion.discrepancias > 0) {
+              msg += `- **ATENCION: ${verificacion.discrepancias} discrepancia(s)**\n`;
+              for (const d of discrepancias) {
+                if (d.estado === "discrepancia") {
+                  msg += `  - ${d.campo}: dice \"${d.sintesis}\" pero portal dice \"${d.portal}\"\n`;
+                }
+              }
+            }
+            if (verificacion.faltantes > 0) {
+              msg += `- Datos faltantes: ${verificacion.faltantes} — necesitas completarlos manualmente\n`;
+            }
+          }
+
           msg += `\nQueres que revise algo o corrijamos algun dato?`;
           setMensajes((prev) => [...prev, {
             rol: "asistente",

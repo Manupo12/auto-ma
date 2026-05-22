@@ -26,10 +26,11 @@ STEPS = [
     ("leer_notas_crudas", "leyendo_notas", 3),
     ("leer_formatos_subidos", "leyendo_formatos", 4),
     ("sintetizar_maestro", "sintetizando", 5),
-    ("generar_formatos", "generando", 6),
-    ("qa_formatos", "qa", 7),
-    ("convertir_pdf", "pdf", 8),
-    ("notificar_listo", "notificando", 9),
+    ("verificar_portales", "verificando_portales", 6),
+    ("generar_formatos", "generando", 7),
+    ("qa_formatos", "qa", 8),
+    ("convertir_pdf", "pdf", 9),
+    ("notificar_listo", "notificando", 10),
 ]
 
 
@@ -54,7 +55,7 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
 
     for step_name, estado_label, paso_num in STEPS:
         db.actualizar_paso(task_id, paso=paso_num, estado=estado_label)
-        _log(f"PASO {paso_num}/9: {step_name}")
+        _log(f"PASO {paso_num}/10: {step_name}")
         t_step = time.time()
 
         try:
@@ -99,6 +100,8 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
         "formatos_generados": formatos_generados,
         "pdfs": pdfs,
         "warnings": warnings + qa_warnings,
+        "verificacion": contexto.get("verificar_portales", {}).get("resumen", {}),
+        "discrepancias": contexto.get("verificar_portales", {}).get("verificaciones", []),
     }
     db.guardar_resultado(task_id, resultado_final, estado="listo")
     _log(f"═══ TASK {task_id} LISTO en {time.time()-t_total:.1f}s ═══")
@@ -126,9 +129,22 @@ def _build_kwargs(step_name: str, contexto: dict) -> dict:
             "formatos_subidos": contexto.get("leer_formatos_subidos", {}).get("formatos_subidos", []),
             "paciente_cc": cc,
         }
-    if step_name == "generar_formatos":
+    if step_name == "verificar_portales":
         sintesis = contexto.get("sintetizar_maestro", {})
-        return {"datos_clinicos": sintesis.get("datos_clinicos") or {}, "task_id": task_id}
+        return {
+            "datos_clinicos": sintesis.get("datos_clinicos") or {},
+            "paciente_cc": cc,
+        }
+    if step_name == "generar_formatos":
+        # Usar datos enriquecidos de la verificacion si existen
+        verif = contexto.get("verificar_portales", {})
+        sintesis = contexto.get("sintetizar_maestro", {})
+        datos_clinicos = verif.get("datos_enriquecidos") or sintesis.get("datos_clinicos") or {}
+        # Aplicar campos completados del portal
+        for campo, valor in verif.get("campos_completados", {}).items():
+            if not _get_nested(datos_clinicos, campo) and valor:
+                _set_nested(datos_clinicos, campo, valor)
+        return {"datos_clinicos": datos_clinicos, "task_id": task_id, "verificaciones": verif.get("verificaciones", [])}
     if step_name == "qa_formatos":
         return {"formatos_generados": contexto.get("generar_formatos", {}).get("formatos_generados", [])}
     if step_name == "convertir_pdf":
@@ -136,11 +152,35 @@ def _build_kwargs(step_name: str, contexto: dict) -> dict:
     if step_name == "notificar_listo":
         portales = contexto.get("resolver_paciente", {}).get("datos_portales", {})
         nombre = portales.get("medifolios", {}).get("nombre1", "") + " " + portales.get("medifolios", {}).get("apellido1", "")
+        verif = contexto.get("verificar_portales", {})
         return {
             "task_id": task_id,
             "paciente_nombre": nombre.strip() or f"CC {cc}",
             "paciente_cc": cc,
             "formatos_generados": contexto.get("generar_formatos", {}).get("formatos_generados", []),
             "warnings": contexto.get("transcribir", {}).get("warnings", []),
+            "resumen_verificacion": verif.get("resumen", {}),
+            "discrepancias": verif.get("verificaciones", []),
         }
     return {}
+
+
+def _get_nested(d: dict, campo: str):
+    """Obtiene valor anidado: 'paciente.nombre' -> d['paciente']['nombre']"""
+    partes = campo.split(".")
+    for p in partes:
+        if isinstance(d, dict):
+            d = d.get(p, "")
+        else:
+            return ""
+    return d if isinstance(d, str) else ""
+
+
+def _set_nested(d: dict, campo: str, valor: str):
+    """Setea valor anidado: 'paciente.nombre' = 'Maribel'"""
+    partes = campo.split(".")
+    for p in partes[:-1]:
+        if p not in d:
+            d[p] = {}
+        d = d[p]
+    d[partes[-1]] = valor

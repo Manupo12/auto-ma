@@ -31,6 +31,12 @@
       "fecha": "2026-05-22",
       "confianza": 1.0,
       "n_discrepancias": 0
+    },
+    {
+      "cc": "36280228",
+      "fecha": "2026-05-22",
+      "confianza": 1.0,
+      "n_discrepancias": 0
     }
   ],
   "ultima_actualizacion": "2026-05-22"

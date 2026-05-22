@@ -3,10 +3,12 @@
   "medifolios": {
     "nombre1": "Maribel Fuentes",
     "apellido1": "Medina",
+    "nombre2": "",
     "nombre": "Maribel Fuentes Medina",
     "numero_id": "36280228",
     "direccion": "Conjunto Reserva Los Lagos, 25 Saritaco, Pitarentos, Santander",
     "telefono": "3138827687",
+    "email": "maribel.fuentes@example.com",
     "empresa": "Alcaldia Municipal de Pitarentos",
     "cargo": "Tecnica administrativa",
     "diagnostico_cie10": "G56.0",
@@ -18,7 +20,8 @@
       {
         "id": "503375273",
         "fecha": "2025-01-15",
-        "diagnostico": "G56.0 sindrome tunel carpiano"
+        "diagnostico": "G56.0 - Sindrome del tunel carpiano derecho",
+        "tipo": "Enfermedad laboral"
       }
     ],
     "nombre_detectado": "MARIBEL FUENTES MEDINA",
@@ -27,12 +30,17 @@
     ],
     "datos_asegurado": {
       "nombre": "MARIBEL FUENTES MEDINA",
-      "empresa": "ALCALDIA MUNICIPAL DE PITARENTOS"
+      "empresa": "ALCALDIA MUNICIPAL DE PITARENTOS",
+      "documento": "36280228"
     }
   },
   "_meta": {
-    "extraido_en": "2026-05-22T16:41:14.560618",
+    "extraido_en": "2026-05-22T16:55:00.577771",
     "discrepancias": [],
-    "parcial": false
+    "parcial": false,
+    "fuentes": [
+      "medifolios",
+      "positiva"
+    ]
   }
 }

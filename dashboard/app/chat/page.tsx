@@ -73,6 +73,9 @@ export default function ChatPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLInputElement>(null);
 
+  const [pacienteCc, setPacienteCc] = useState("");
+  const [pacientesHistorial, setPacientesHistorial] = useState<{cc: string; mensajes: number; ultimo: string}[]>([]);
+
   const [ccAudio, setCcAudio] = useState("");
   const [mostrarCcAudio, setMostrarCcAudio] = useState(false);
   const [pendingAudioFile, setPendingAudioFile] = useState<File | null>(null);
@@ -99,6 +102,47 @@ export default function ChatPage() {
     const t = setInterval(() => setEstadoIdx((i) => (i + 1) % ESTADOS_PENSANDO.length), 8000);
     return () => clearInterval(t);
   }, [enviando, mensajes]);
+
+  // Cargar lista de pacientes con historial
+  useEffect(() => {
+    fetch(`${API}/api/chat/historial`)
+      .then(r => r.json())
+      .then(d => { if (d.ok) setPacientesHistorial(d.pacientes || []); })
+      .catch(() => {});
+  }, [mensajes.length]);
+
+  // Guardar conversacion cuando cambia el CC
+  useEffect(() => {
+    if (!pacienteCc || mensajes.length <= 1) return;
+    const timer = setTimeout(() => {
+      fetch(`${API}/api/chat/historial`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paciente_cc: pacienteCc, mensajes })
+      }).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [mensajes, pacienteCc]);
+
+  // Cargar conversacion al seleccionar CC
+  const cargarHistorialPaciente = async (cc: string) => {
+    setPacienteCc(cc);
+    try {
+      const r = await fetch(`${API}/api/chat/historial/${cc}`);
+      const d = await r.json();
+      if (d.ok && d.mensajes?.length > 0) {
+        setMensajes(d.mensajes);
+      } else {
+        setMensajes([{
+          rol: "asistente",
+          contenido: `Hola Sandra! Cargue el historial de CC ${cc}. Tenes ${d.mensajes?.length || 0} mensajes guardados. En que te ayudo con este paciente?`,
+          timestamp: new Date().toISOString(),
+        }]);
+      }
+    } catch {
+      setMensajes([{ rol: "asistente", contenido: `No pude cargar el historial de CC ${cc}.`, timestamp: new Date().toISOString() }]);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -344,18 +388,35 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] animate-fadeIn">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Chat con Tomy</h1>
           <p className="text-slate-500 mt-1">Corrige documentos, busca pacientes, subi audios</p>
         </div>
-        <button
-          onClick={limpiarChat}
-          className="flex items-center gap-1 px-3 py-2 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-          title="Limpiar conversacion"
-        >
-          <Trash2 size={14} /> Limpiar
-        </button>
+        <div className="flex items-center gap-2">
+          {pacientesHistorial.length > 0 && (
+            <select
+              value={pacienteCc}
+              onChange={(e) => { if (e.target.value) cargarHistorialPaciente(e.target.value); }}
+              className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+            >
+              <option value="">Historial por paciente</option>
+              {pacientesHistorial.map(p => (
+                <option key={p.cc} value={p.cc}>CC {p.cc} ({p.mensajes} msgs)</option>
+              ))}
+            </select>
+          )}
+          {pacienteCc && (
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">CC {pacienteCc}</span>
+          )}
+          <button
+            onClick={limpiarChat}
+            className="flex items-center gap-1 px-3 py-2 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            title="Limpiar conversacion"
+          >
+            <Trash2 size={14} /> Limpiar
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">

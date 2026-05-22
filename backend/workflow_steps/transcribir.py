@@ -20,13 +20,17 @@ def _log(msg: str):
 
 
 def _calcular_duracion_s(audio_path: Path) -> float:
-    """Devuelve duración en segundos usando ffprobe."""
-    result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
-        capture_output=True, text=True, timeout=30,
-    )
-    return float(result.stdout.strip())
+    """Duración en segundos. Fallback a 0 si ffprobe no disponible."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(result.stdout.strip())
+    except (FileNotFoundError, ValueError, subprocess.TimeoutExpired) as e:
+        _log(f"ffprobe no disponible ({e}) — asumiendo audio corto, sin chunking")
+        return 0.0
 
 
 def _necesita_chunking(duracion_s: float) -> bool:

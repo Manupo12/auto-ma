@@ -23,13 +23,14 @@ export default function HoyPage() {
   const [citas, setCitas] = useState<Cita[]>([]);
   const [tasksActivas, setTasksActivas] = useState<TaskActiva[]>([]);
   const [cargando, setCargando] = useState(true);
+  const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
         const [rAgenda, rTasks] = await Promise.all([
-          fetch("http://localhost:8000/api/agenda"),
-          fetch("http://localhost:8000/api/tasks/activas"),
+          fetch(`${API}/api/agenda`),
+          fetch(`${API}/api/tasks/activas`),
         ]);
         const agenda = rAgenda.ok ? await rAgenda.json() : {citas:[]};
         const tasks = rTasks.ok ? await rTasks.json() : {tasks:[]};

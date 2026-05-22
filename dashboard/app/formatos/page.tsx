@@ -31,8 +31,8 @@ type EstadoFiltro = "todos" | "pendiente" | "generado" | "revisado" | "aprobado"
 
 export default function FormatosPage() {
   const [filtro, setFiltro] = useState<EstadoFiltro>("todos");
-  const [cc, setCc] = useState("1193143688");
-  const [ccInput, setCcInput] = useState("1193143688");
+  const [cc, setCc] = useState("");
+  const [ccInput, setCcInput] = useState("");
   const [formatoExpandido, setFormatoExpandido] = useState<string | null>(null);
   const [formatosAPI, setFormatosAPI] = useState<FormatoAPI[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -138,9 +138,9 @@ export default function FormatosPage() {
       )}
 
       {/* Reconciliación */}
-      <ReconciliacionAlert
-        data={{ medifolios: "503463870", positiva: "503463870", coinciden: true, alerta: "" }}
-      />
+      {cc && formatosAPI.length > 0 && (
+        <ReconciliacionAlert data={{ medifolios: "", positiva: "", coinciden: true, alerta: "" }} />
+      )}
 
       {/* Paciente + Filtro */}
       <div className="flex items-center gap-3 flex-wrap">

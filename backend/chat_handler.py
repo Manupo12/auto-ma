@@ -466,7 +466,8 @@ def _leer_docx(ruta: Path) -> str:
         return ""
 
 
-def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_files: str = "") -> str:
+def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_files: str = "",
+                historial=None, ctx_sistema: str = "") -> str:
     """Llama al LLM. DeepSeek v4: modelo de razonamiento — necesita max_tokens alto."""
     if not API_KEY:
         _log("LLM: ❌ sin API key")
@@ -474,17 +475,30 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
+    # Historial (ultimos 6 turnos)
+    if historial:
+        for h in historial[-6:]:
+            rol = h.get("rol", "")
+            contenido = (h.get("contenido", "") or "")[:2000]
+            if rol == "usuario":
+                messages.append({"role": "user", "content": contenido})
+            elif rol == "asistente":
+                messages.append({"role": "assistant", "content": contenido})
+
     # Construir contexto
-    partes = [mensaje]
+    partes = []
+    if ctx_sistema:
+        partes.append(ctx_sistema)
+    partes.append(f"\n═══ MENSAJE DE SANDRA ═══\n{mensaje}")
     if archivo_doc:
-        partes.append(f"\n\n[Documento encontrado]:\n{archivo_doc}\n⚠️ NO describas. COMPLETA lo que falta.")
+        partes.append(f"\n\n[Documentos encontrados]:\n{archivo_doc}\n⚠️ NO describas. COMPLETA lo que falta.")
     if cc:
         partes.append(f"\n[CC: {cc}]")
     if workspace_files:
         partes.append(f"\n\n📁 Archivos disponibles:\n{workspace_files}")
     else:
         partes.append("\n\n📁 No tengo acceso a tu carpeta de trabajo. Avísale a Sandra.")
-    
+
     ctx = "\n".join(partes)
     messages.append({"role": "user", "content": ctx})
 
@@ -810,6 +824,110 @@ def _formatear_datos_verificados(datos: dict) -> str:
     return f"\n\n═══════════════════════════════\n{header}\n" + "\n".join(partes) + "\n═══════════════════════════════\n"
 
 
+def _construir_contexto_sistema() -> str:
+    """
+    Captura el estado actual del sistema para inyectar al LLM.
+    Tomy sabe que hay en el dashboard antes de responder.
+    Rapido: solo lee SQLite y cuenta archivos, sin I/O pesada.
+    """
+    lineas = ["═══ ESTADO ACTUAL DEL SISTEMA ═══"]
+
+    # 1. Tareas activas en el workflow
+    try:
+        db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+        from backend.task_db import TaskDB
+        db = TaskDB(db_path)
+        activas = db.listar_activos()
+        if activas:
+            lineas.append(f"\n🔄 PROCESANDO AHORA ({len(activas)} tarea(s)):")
+            PASOS = {
+                1: "Transcribiendo audio", 2: "Buscando datos del paciente",
+                3: "Leyendo notas", 4: "Leyendo formatos subidos",
+                5: "Sintetizando (IA razonadora)", 6: "Generando 7 formatos",
+                7: "Verificando calidad", 8: "Convirtiendo a PDF", 9: "Notificando",
+            }
+            for t in activas[:3]:
+                paso_label = PASOS.get(t.get("paso_actual", 0), t.get("estado", "?"))
+                lineas.append(f"  • CC {t['paciente_cc']}: {paso_label} (paso {t.get('paso_actual','?')}/9)")
+        else:
+            lineas.append("\n⚡ Sin tareas activas — sistema libre")
+    except Exception as e:
+        lineas.append(f"\n[Tareas: no disponible — {e}]")
+
+    # 2. Agenda del dia
+    try:
+        from backend.notificador import api_get_agenda
+        agenda = api_get_agenda()
+        if agenda and agenda.get("citas"):
+            citas = agenda["citas"]
+            lineas.append(f"\n📅 AGENDA HOY ({len(citas)} cita(s)):")
+            for c in citas[:6]:
+                nombre = c.get("paciente", "?")
+                hora = c.get("hora", "?")
+                cc_cita = c.get("cc", "")
+                procesado = "✅" if c.get("procesado") else "⏳"
+                lineas.append(f"  {procesado} {hora} — {nombre}" + (f" (CC {cc_cita})" if cc_cita else ""))
+        else:
+            lineas.append("\n📅 AGENDA: No hay agenda cargada para hoy")
+    except Exception:
+        lineas.append("\n📅 AGENDA: no disponible")
+
+    # 3. Pacientes en el sistema
+    try:
+        import glob as _glob
+        storage = Path(os.getenv("STORAGE_DIR", "./storage"))
+        data_dir = storage / "data"
+        jsons = _glob.glob(str(data_dir / "*-completo.json"))
+        lineas.append(f"\n👥 PACIENTES EN SISTEMA: {len(jsons)}")
+        if len(jsons) <= 5:
+            for jpath in jsons:
+                try:
+                    import json as _json
+                    with open(jpath, encoding="utf-8") as f:
+                        d = _json.load(f)
+                    nombre = d.get("paciente", {}).get("nombre", "?")
+                    cc_p = d.get("paciente", {}).get("documento", "?")
+                    lineas.append(f"  • {nombre} (CC {cc_p})")
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 4. Formatos generados hoy y recientes
+    try:
+        docs_dir = storage / "docs"
+        from datetime import date
+        hoy_str = date.today().strftime("%Y-%m-%d")
+        docs_hoy = []
+        docs_recientes = []
+        for f in sorted(docs_dir.glob("*.docx"), key=lambda x: x.stat().st_mtime, reverse=True):
+            mtime_str = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d")
+            if mtime_str == hoy_str:
+                docs_hoy.append(f.name)
+            docs_recientes.append(f"{f.name} ({mtime_str})")
+            if len(docs_recientes) >= 5:
+                break
+        if docs_hoy:
+            lineas.append(f"\n📄 FORMATOS GENERADOS HOY: {len(docs_hoy)}")
+            for d in docs_hoy[:5]:
+                lineas.append(f"  • {d}")
+        if docs_recientes and not docs_hoy:
+            lineas.append(f"\n📄 FORMATOS RECIENTES:")
+            for d in docs_recientes[:3]:
+                lineas.append(f"  • {d}")
+    except Exception:
+        pass
+
+    # 5. Feature flags
+    tomy_on = os.getenv("TOMY_COMPLETO_ENABLED", "false").lower() == "true"
+    fase_a = os.getenv("FASE_A_ENABLED", "false").lower() == "true"
+    lineas.append(f"\n⚙️ Pipeline: {'✅ activo' if tomy_on else '❌ inactivo (TOMY_COMPLETO_ENABLED=false)'}")
+    if fase_a:
+        lineas.append("⚙️ Extraccion portales: ✅ activa")
+
+    return "\n".join(lineas)
+
+
 def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None) -> dict:
     """Procesa mensaje del chat. Soporta hasta 7 formatos por paciente."""
     _log(f"═════ '{mensaje[:100]}' ═════")
@@ -885,7 +1003,9 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
         mensaje_con_sugerencia = mensaje
 
     # 7. Llamar LLM con todo el contexto
-    respuesta = _llamar_llm(mensaje_con_sugerencia, cc, doc_content, workspace_files)
+    ctx_sistema = _construir_contexto_sistema()
+    respuesta = _llamar_llm(mensaje_con_sugerencia, cc, doc_content, workspace_files,
+                            historial=historial, ctx_sistema=ctx_sistema)
     
     total_time = time.time() - t_total
     _log(f"═════ Listo en {total_time:.1f}s ═════")

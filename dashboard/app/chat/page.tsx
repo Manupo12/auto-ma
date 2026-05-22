@@ -1,18 +1,50 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Loader2, Trash2, FileText } from "lucide-react";
-import type { ChatMessage } from "@/lib/hermes";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Send, Bot, User, Loader2, Trash2, FileText, Mic, Paperclip, X } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+interface ChatMessage {
+  rol: "usuario" | "asistente";
+  contenido: string;
+  timestamp: string;
+  archivo?: string;
+  taskId?: string;
+  pacienteCC?: string;
+  formatos?: { archivo?: string; formato?: string }[];
+  acciones?: string[];
+}
 
 const STORAGE_KEY = "rilo-chat-messages";
-const MAX_MESSAGES = 50; // Keep last 50 messages in localStorage
+const MAX_MESSAGES = 50;
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+const ESTADOS_PENSANDO = [
+  "Revisando el estado del sistema...",
+  "Leyendo tus archivos...",
+  "Cruzando datos entre formatos...",
+  "Tomy esta razonando...",
+  "Verificando informacion clinica...",
+];
+
+const PASOS_LABELS: Record<number, string> = {
+  1: "Transcribiendo audio con Deepgram...",
+  2: "Buscando datos del paciente...",
+  3: "Leyendo tus notas...",
+  4: "Leyendo formatos de referencia...",
+  5: "Sintetizando (IA razonando, puede tardar 5+ min)...",
+  6: "Generando los 7 formatos...",
+  7: "Verificando calidad...",
+  8: "Convirtiendo a PDF...",
+  9: "Enviando notificacion por Telegram...",
+};
 
 function loadMessages(): ChatMessage[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const msgs = JSON.parse(raw) as ChatMessage[];
-      return msgs.slice(-MAX_MESSAGES);
+      return (JSON.parse(raw) as ChatMessage[]).slice(-MAX_MESSAGES);
     }
   } catch {}
   return [];
@@ -28,11 +60,9 @@ export default function ChatPage() {
   const [mensajes, setMensajes] = useState<ChatMessage[]>(() => {
     const saved = loadMessages();
     if (saved.length > 0) return saved;
-    // Default welcome message
     const welcome: ChatMessage = {
       rol: "asistente",
-      contenido:
-        "¡Hola Sandra! Soy Tomy. Puedes chatear conmigo para buscar pacientes, revisar formatos, o corregir documentos. ¿En qué te ayudo?",
+      contenido: "Hola Sandra! Soy Tomy. Podes chatear conmigo para buscar pacientes, revisar formatos, o corregir documentos. Tambien podes **adjuntar un audio** de consulta para que procese todo automaticamente. En que te ayudo?",
       timestamp: new Date().toISOString(),
     };
     return [welcome];
@@ -40,8 +70,20 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [enviando, setEnviando] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
 
-  // Save to localStorage on every change
+  const [ccAudio, setCcAudio] = useState("");
+  const [mostrarCcAudio, setMostrarCcAudio] = useState(false);
+  const [pendingAudioFile, setPendingAudioFile] = useState<File | null>(null);
+
+  const [estadoIdx, setEstadoIdx] = useState(0);
+  const [showFilePicker, setShowFilePicker] = useState(false);
+  const [fpCc, setFpCc] = useState("");
+  const [fpArchivos, setFpArchivos] = useState<{ nombre: string; tamano_kb: number }[]>([]);
+  const [fpLoading, setFpLoading] = useState(false);
+
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   useEffect(() => {
     saveMessages(mensajes);
   }, [mensajes]);
@@ -50,90 +92,202 @@ export default function ChatPage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [mensajes]);
 
+  useEffect(() => {
+    if (!enviando && mensajes[mensajes.length - 1]?.contenido === "") return;
+    if (!enviando) return;
+    const t = setInterval(() => setEstadoIdx((i) => (i + 1) % ESTADOS_PENSANDO.length), 8000);
+    return () => clearInterval(t);
+  }, [enviando, mensajes]);
+
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
+  const iniciarPollingTarea = useCallback((taskId: string, cc: string) => {
+    const intervalo = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/api/tasks/${taskId}`);
+        const data = await res.json();
+        const task = data.task;
+
+        if (task.estado === "listo") {
+          clearInterval(intervalo);
+          const formatos = task.resultado?.formatos_generados || [];
+          let msg = `**Listo, Sandra!** Genere ${formatos.length} formatos para CC ${cc}:\n\n`;
+          for (const f of formatos) {
+            const nombre = f.archivo?.split("/").pop() || f.formato;
+            msg += `- [${nombre}](/api/download/${encodeURIComponent(nombre)})\n`;
+          }
+          msg += `\nQueres que revise algo o corrijamos algun dato?`;
+          setMensajes((prev) => [...prev, {
+            rol: "asistente",
+            contenido: msg,
+            timestamp: new Date().toISOString(),
+            formatos: formatos,
+          }]);
+        } else if (task.estado?.startsWith("error")) {
+          clearInterval(intervalo);
+          setMensajes((prev) => [...prev, {
+            rol: "asistente",
+            contenido: `Hubo un problema en el paso ${task.paso_actual}/9: ${task.error || "error desconocido"}. Intentamos de nuevo?`,
+            timestamp: new Date().toISOString(),
+          }]);
+        } else if (task.estado === "esperando_datos") {
+          clearInterval(intervalo);
+          setMensajes((prev) => [...prev, {
+            rol: "asistente",
+            contenido: `Procese el audio pero me faltan algunos datos criticos para completar los formatos. Me los podes dar?\n\nDatos faltantes: ${(task.resultado?.campos_faltantes || []).join(", ")}`,
+            timestamp: new Date().toISOString(),
+          }]);
+        } else {
+          const pasoLabel = PASOS_LABELS[task.paso_actual] || task.estado;
+          setMensajes((prev) => {
+            const nuevo = [...prev];
+            for (let i = nuevo.length - 1; i >= 0; i--) {
+              if ((nuevo[i] as ChatMessage).taskId === taskId) {
+                nuevo[i] = {
+                  ...nuevo[i],
+                  contenido: nuevo[i].contenido.split("\n\n*Progreso:*")[0] +
+                    `\n\n*Progreso:* Paso ${task.paso_actual}/9 — ${pasoLabel}`,
+                };
+                break;
+              }
+            }
+            return nuevo;
+          });
+        }
+      } catch {}
+    }, 10000);
+    pollingRef.current = intervalo;
+  }, []);
+
+  const handleAudioChat = async (file: File) => {
+    if (!ccAudio.trim()) {
+      setPendingAudioFile(file);
+      setMostrarCcAudio(true);
+      return;
+    }
+    setEnviando(true);
+
+    const userMsg: ChatMessage = {
+      rol: "usuario",
+      contenido: `Audio subido: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB) — CC ${ccAudio}`,
+      timestamp: new Date().toISOString(),
+    };
+    setMensajes((prev) => [...prev, userMsg]);
+
+    const form = new FormData();
+    form.append("audio", file);
+    form.append("paciente_cc", ccAudio.trim());
+
+    try {
+      const res = await fetch(`${API}/api/chat/audio`, { method: "POST", body: form });
+      const data = await res.json();
+
+      if (data.ok) {
+        const tomyMsg: ChatMessage = {
+          rol: "asistente",
+          contenido: data.mensaje_tomy,
+          timestamp: new Date().toISOString(),
+          taskId: data.task_id,
+          pacienteCC: data.paciente_cc,
+        };
+        setMensajes((prev) => [...prev, tomyMsg]);
+        iniciarPollingTarea(data.task_id, data.paciente_cc);
+      } else {
+        throw new Error(data.detail || "Error al procesar audio");
+      }
+    } catch (e) {
+      setMensajes((prev) => [...prev, {
+        rol: "asistente",
+        contenido: `No pude procesar el audio: ${e instanceof Error ? e.message : "error desconocido"}`,
+        timestamp: new Date().toISOString(),
+      }]);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
   const enviar = async () => {
     if (!input.trim() || enviando) return;
     const mensaje = input.trim();
     setInput("");
     setEnviando(true);
-    const t0 = Date.now();
 
-    // Agregar mensaje del usuario
     const userMsg: ChatMessage = {
       rol: "usuario",
       contenido: mensaje,
       timestamp: new Date().toISOString(),
     };
-    const updatedMensajes = [...mensajes, userMsg];
-    setMensajes(updatedMensajes);
+    const historialConUser = [...mensajes, userMsg];
+    const assistantPlaceholder: ChatMessage = {
+      rol: "asistente",
+      contenido: "",
+      timestamp: new Date().toISOString(),
+    };
+    setMensajes([...historialConUser, assistantPlaceholder]);
 
     try {
-      const res = await fetch("http://localhost:8000/api/chat", {
+      const res = await fetch(`${API}/api/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mensaje,
-          paciente_cc: undefined,
-          historial: updatedMensajes.slice(-10),
-        }),
-        // No timeout infinito — si tarda >45s, el navegador aborta
+        body: JSON.stringify({ mensaje, historial: historialConUser.slice(-10) }),
         signal: AbortSignal.timeout(300000),
       });
 
-      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-      let respuesta: string;
-      let archivo_encontrado: string | null = null;
-      let workspaceOk: boolean | null = null;
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let acumulado = "";
 
-      if (res.ok) {
-        const data = await res.json();
-        respuesta = data.contenido ?? data.respuesta ?? "";
-        archivo_encontrado = data.archivo ?? null;
-        workspaceOk = data.workspace_accesible ?? null;
-        
-        // Si respuesta vacía, mostrar mensaje de diagnóstico
-        if (!respuesta || respuesta.trim() === "") {
-          respuesta = "🤔 Tomy no pudo generar una respuesta (respuesta vacía).\n\n"
-            + (workspaceOk === false 
-              ? "⚠️ Tu carpeta de trabajo no es accesible. Revisá WORKSPACE_DIR en .env"
-              : "💡 Intentá ser más específico o probá con otro mensaje.");
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const chunk of decoder.decode(value, { stream: true }).split("\n")) {
+          const line = chunk.trim();
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.tipo === "delta") {
+              acumulado += data.contenido;
+              setMensajes((prev) => {
+                const nuevo = [...prev];
+                nuevo[nuevo.length - 1] = { ...nuevo[nuevo.length - 1], contenido: acumulado };
+                return nuevo;
+              });
+            } else if (data.tipo === "fin") {
+              setMensajes((prev) => {
+                const nuevo = [...prev];
+                nuevo[nuevo.length - 1] = {
+                  ...nuevo[nuevo.length - 1],
+                  contenido: acumulado || "Sin respuesta.",
+                  archivo: data.archivo,
+                };
+                return nuevo;
+              });
+            } else if (data.tipo === "error") {
+              setMensajes((prev) => {
+                const nuevo = [...prev];
+                nuevo[nuevo.length - 1] = {
+                  ...nuevo[nuevo.length - 1],
+                  contenido: `Error: ${data.contenido || "error desconocido"}`,
+                };
+                return nuevo;
+              });
+            }
+          } catch {}
         }
-        
-        // Agregar info de debug sutil
-        if (workspaceOk === false) {
-          respuesta += "\n\n⚠️ No veo tu carpeta de trabajo.";
-        }
-      } else {
-        const errorText = await res.text().catch(() => "");
-        respuesta = `❌ Error del servidor (HTTP ${res.status}). ${errorText.slice(0, 200)}`;
       }
-
-      const assistantMsg: ChatMessage = {
-        rol: "asistente",
-        contenido: respuesta,
-        timestamp: new Date().toISOString(),
-        archivo: archivo_encontrado || undefined,
-      };
-      setMensajes((prev) => [...prev, assistantMsg]);
-    } catch (err: unknown) {
-      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-      let errorMsg = "❌ No se pudo conectar con el servidor.";
-      
-      if (err instanceof DOMException && err.name === "AbortError") {
-        errorMsg = `⏰ La solicitud tardó más de 5 minutos. El servidor puede estar procesando un archivo muy pesado.`;
-      } else if (err instanceof TypeError && err.message.includes("fetch")) {
-        errorMsg = "❌ No se pudo conectar con el backend. ¿Está corriendo en http://localhost:8000?";
-      } else if (err instanceof Error) {
-        errorMsg = `❌ Error: ${err.message.slice(0, 200)}`;
-      }
-      
-      setMensajes((prev) => [
-        ...prev,
-        {
-          rol: "asistente",
-          contenido: errorMsg,
-          timestamp: new Date().toISOString(),
-        },
-      ]);
+    } catch {
+      setMensajes((prev) => {
+        const n = [...prev];
+        n[n.length - 1] = {
+          ...n[n.length - 1],
+          contenido: n[n.length - 1].contenido || "Error de conexion con el servidor. Asegurate de que el backend este corriendo.",
+        };
+        return n;
+      });
     } finally {
       setEnviando(false);
     }
@@ -141,14 +295,29 @@ export default function ChatPage() {
 
   const limpiarChat = () => {
     localStorage.removeItem(STORAGE_KEY);
-    setMensajes([
-      {
-        rol: "asistente",
-        contenido:
-          "¡Chat limpio! ¿En qué te ayudo, Sandra?",
-        timestamp: new Date().toISOString(),
-      },
-    ]);
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    setMensajes([{
+      rol: "asistente",
+      contenido: "Chat limpio! En que te ayudo, Sandra?",
+      timestamp: new Date().toISOString(),
+    }]);
+  };
+
+  const buscarArchivos = async () => {
+    if (!fpCc.trim()) return;
+    setFpLoading(true);
+    try {
+      const r = await fetch(`${API}/api/archivos/paciente/${fpCc.trim()}`);
+      const d = await r.json();
+      setFpArchivos(d.archivos || []);
+    } finally {
+      setFpLoading(false);
+    }
+  };
+
+  const seleccionarArchivo = (nombre: string) => {
+    setInput((prev) => prev + (prev ? " " : "") + `/api/download/${encodeURIComponent(nombre)}`);
+    setShowFilePicker(false);
   };
 
   return (
@@ -156,29 +325,21 @@ export default function ChatPage() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Chat con Tomy</h1>
-          <p className="text-slate-500 mt-1">
-            Corrige documentos, busca pacientes, genera formatos
-          </p>
+          <p className="text-slate-500 mt-1">Corrige documentos, busca pacientes, subi audios</p>
         </div>
         <button
           onClick={limpiarChat}
           className="flex items-center gap-1 px-3 py-2 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-          title="Limpiar conversación"
+          title="Limpiar conversacion"
         >
-          <Trash2 size={14} />
-          Limpiar
+          <Trash2 size={14} /> Limpiar
         </button>
       </div>
 
-      {/* Chat area */}
       <div className="flex-1 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {mensajes.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex gap-3 ${msg.rol === "usuario" ? "justify-end" : ""}`}
-            >
+            <div key={i} className={`flex gap-3 ${msg.rol === "usuario" ? "justify-end" : ""}`}>
               {msg.rol === "asistente" && (
                 <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
                   <Bot size={16} className="text-white" />
@@ -191,22 +352,37 @@ export default function ChatPage() {
                     : "bg-slate-100 text-slate-800 rounded-bl-md"
                 }`}
               >
-                <p className="whitespace-pre-wrap">{msg.contenido}</p>
-                {msg.archivo && (
+                {msg.rol === "asistente" ? (
+                  <div className="prose prose-sm max-w-none prose-slate">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {msg.contenido}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap">{msg.contenido}</p>
+                )}
+                {msg.formatos && msg.formatos.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {msg.formatos.map((f, fi) => (
+                      <a
+                        key={fi}
+                        href={f.archivo ? `/api/download/${encodeURIComponent(f.archivo.split("/").pop() || "")}` : "#"}
+                        download
+                        className="text-xs text-blue-600 hover:underline block"
+                      >
+                        <FileText size={10} className="inline mr-1" />
+                        {f.formato || f.archivo?.split("/").pop()}
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {msg.archivo && !msg.formatos && (
                   <p className="text-xs mt-1 text-blue-500 flex items-center gap-1">
-                    <FileText size={10} />
-                    {msg.archivo}
+                    <FileText size={10} /> {msg.archivo}
                   </p>
                 )}
-                <p
-                  className={`text-xs mt-1 ${
-                    msg.rol === "usuario" ? "text-blue-200" : "text-slate-400"
-                  }`}
-                >
-                  {new Date(msg.timestamp).toLocaleTimeString("es-CO", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                <p className={`text-xs mt-1 ${msg.rol === "usuario" ? "text-blue-200" : "text-slate-400"}`}>
+                  {new Date(msg.timestamp).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
                 </p>
               </div>
               {msg.rol === "usuario" && (
@@ -216,22 +392,87 @@ export default function ChatPage() {
               )}
             </div>
           ))}
-          {enviando && (
+          {enviando && mensajes[mensajes.length - 1]?.contenido === "" && (
             <div className="flex gap-3">
               <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
                 <Bot size={16} className="text-white" />
               </div>
-              <div className="bg-slate-100 px-4 py-3 rounded-2xl rounded-bl-md">
-                <Loader2 size={18} className="animate-spin text-slate-400" />
+              <div className="bg-slate-100 px-4 py-3 rounded-2xl rounded-bl-md flex items-center gap-2">
+                <Loader2 size={16} className="animate-spin text-blue-500" />
+                <span className="text-sm text-slate-600">{ESTADOS_PENSANDO[estadoIdx]}</span>
               </div>
             </div>
           )}
           <div ref={chatEndRef} />
         </div>
 
-        {/* Input */}
         <div className="p-4 border-t border-slate-200">
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-end">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowFilePicker((o) => !o)}
+                className="p-3 text-slate-400 hover:text-blue-600 rounded-xl hover:bg-slate-50 transition-colors"
+                title="Adjuntar archivo"
+              >
+                <Paperclip size={20} />
+              </button>
+              {showFilePicker && (
+                <div className="absolute bottom-12 left-0 w-80 bg-white border rounded-xl shadow-xl z-50 p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={fpCc}
+                      onChange={(e) => setFpCc(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && buscarArchivos()}
+                      placeholder="CC del paciente"
+                      className="flex-1 border rounded-lg px-2 py-1 text-sm"
+                    />
+                    <button onClick={buscarArchivos} className="px-2 py-1 bg-blue-600 text-white rounded-lg text-sm">
+                      Buscar
+                    </button>
+                    <button onClick={() => setShowFilePicker(false)}>
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {fpLoading ? (
+                    <Loader2 size={16} className="animate-spin mx-auto" />
+                  ) : fpArchivos.length === 0 ? (
+                    <p className="text-slate-400 text-xs text-center py-2">Sin resultados</p>
+                  ) : (
+                    <div className="max-h-48 overflow-y-auto space-y-1">
+                      {fpArchivos.map((a) => (
+                        <button
+                          key={a.nombre}
+                          onClick={() => seleccionarArchivo(a.nombre)}
+                          className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 text-sm"
+                        >
+                          <FileText size={12} className="text-blue-500 flex-shrink-0" />
+                          <span className="flex-1 truncate">{a.nombre}</span>
+                          <span className="text-slate-400 text-xs">{a.tamano_kb}KB</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <input
+              type="file"
+              accept="audio/*,.m4a"
+              className="hidden"
+              ref={audioRef}
+              onChange={(e) => e.target.files?.[0] && handleAudioChat(e.target.files[0])}
+            />
+            <button
+              onClick={() => audioRef.current?.click()}
+              disabled={enviando}
+              className="p-3 text-slate-400 hover:text-purple-600 rounded-xl hover:bg-purple-50 transition-colors"
+              title="Subir audio de una consulta"
+            >
+              <Mic size={20} />
+            </button>
+
             <input
               type="text"
               value={input}
@@ -251,6 +492,36 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+
+      {mostrarCcAudio && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-2xl p-6 w-80 shadow-2xl space-y-4">
+            <h2 className="font-bold text-lg">De que paciente es este audio?</h2>
+            <input
+              type="text"
+              value={ccAudio}
+              onChange={(e) => setCcAudio(e.target.value)}
+              placeholder="Cedula del paciente"
+              className="w-full border-2 border-slate-300 rounded-xl p-3 text-lg focus:border-blue-500 outline-none"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setMostrarCcAudio(false); setPendingAudioFile(null); }}
+                className="flex-1 py-2 border border-slate-300 rounded-xl text-slate-600"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => { setMostrarCcAudio(false); if (pendingAudioFile) handleAudioChat(pendingAudioFile); }}
+                disabled={!ccAudio.trim()}
+                className="flex-1 py-2 bg-blue-600 text-white rounded-xl disabled:opacity-50"
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

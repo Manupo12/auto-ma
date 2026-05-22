@@ -13,6 +13,7 @@ export default function SubirAudioPage() {
   const [subiendo, setSubiendo] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
   const handleFile = (file: File | null) => {
     if (!file) return;
@@ -32,7 +33,7 @@ export default function SubirAudioPage() {
       form.append("audio", archivo);
       form.append("paciente_cc", cc.trim());
 
-      const resp = await fetch("http://localhost:8000/api/procesar-paciente", {
+      const resp = await fetch(`${API}/api/procesar-paciente`, {
         method: "POST",
         body: form,
       });

@@ -25,21 +25,64 @@ def _log(msg: str):
 
 
 def _detectar_discrepancias(datos_medi: Dict, datos_pos: Dict) -> list:
-    """Compara datos entre Medifolios y Positiva. Retorna lista de conflictos."""
+    """
+    Compara Medifolios vs. Positiva campo a campo.
+    Retorna lista de conflictos con nivel de severidad y recomendacion.
+    """
+    import unicodedata
+    import re as _re
     discrepancias = []
 
+    def _norm(s: str) -> str:
+        if not s: return ""
+        s = unicodedata.normalize("NFD", str(s).lower().strip())
+        s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+        return " ".join(s.split())
+
+    def _agregar(campo, v_medi, v_pos, severidad="advertencia", resolucion=""):
+        if v_medi and v_pos and _norm(str(v_medi)) != _norm(str(v_pos)):
+            discrepancias.append({
+                "campo": campo,
+                "medifolios": v_medi,
+                "positiva": v_pos,
+                "severidad": severidad,
+                "resolucion": resolucion or f"Verificar cual es correcto — diferencia: '{v_medi}' vs '{v_pos}'",
+            })
+
+    # 1. Siniestro (critico)
     siniestro_medi = datos_medi.get("siniestro_medi", "")
     siniestros_pos = datos_pos.get("siniestros", [])
     siniestro_pos = siniestros_pos[0].get("id", "") if siniestros_pos else ""
+    _agregar("siniestro", siniestro_medi, siniestro_pos,
+             severidad="critico", resolucion="Usar valor de Positiva (fuente oficial ARL)")
 
-    if siniestro_medi and siniestro_pos and siniestro_medi != "[VERIFICAR]":
-        if siniestro_medi != siniestro_pos:
-            discrepancias.append({
-                "campo": "siniestro",
-                "medifolios": siniestro_medi,
-                "positiva": siniestro_pos,
-                "resolucion": "prevalecer Positiva (fuente oficial)",
-            })
+    # 2. Nombre del paciente (advertencia)
+    nombre_medi = datos_medi.get("nombre", "")
+    nombre_pos = (datos_pos.get("datos_asegurado", {}) or {}).get("nombre", "")
+    if nombre_medi and nombre_pos and _norm(nombre_medi) != _norm(nombre_pos):
+        if nombre_medi.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").upper() == \
+           nombre_pos.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").upper():
+            pass  # solo tildes
+        else:
+            _agregar("nombre", nombre_medi, nombre_pos,
+                     severidad="advertencia", resolucion="Verificar cedula fisica del paciente")
+
+    # 3. Diagnostico CIE-10 (critico)
+    diag_medi = datos_medi.get("diagnostico_cie10", "")
+    siniestro_principal = next((s for s in siniestros_pos if s.get("tipo") in ["AT", ""]), {})
+    diag_pos = siniestro_principal.get("diagnostico", "") if siniestros_pos else ""
+    if diag_pos and len(diag_pos) > 3:
+        match = _re.match(r"^([A-Z]\d{2,3})", diag_pos.strip())
+        if match:
+            diag_pos = match.group(1)
+    _agregar("diagnostico_cie10", diag_medi, diag_pos,
+             severidad="critico", resolucion="Usar Positiva (diagnostico oficial ARL)")
+
+    # 4. Empresa (informativo)
+    empresa_medi = datos_medi.get("empresa", "")
+    empresa_pos = (datos_pos.get("datos_asegurado", {}) or {}).get("empresa", "")
+    _agregar("empresa", empresa_medi, empresa_pos,
+             severidad="informativo", resolucion="Usar el nombre completo de Positiva para documentos oficiales")
 
     return discrepancias
 

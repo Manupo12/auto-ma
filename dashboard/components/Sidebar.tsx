@@ -13,7 +13,7 @@ const items = [
   { href: "/archivos", label: "Mis archivos", icon: Folder },
 ];
 
-export default function Sidebar() {
+export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();
 
   return (
@@ -28,6 +28,7 @@ export default function Sidebar() {
           <Link
             key={href}
             href={href}
+            onClick={onNavigate}
             className={`flex items-center gap-4 px-4 py-3 rounded-xl text-lg transition-colors ${
               active
                 ? "bg-blue-600 text-white"
@@ -42,3 +43,4 @@ export default function Sidebar() {
     </nav>
   );
 }
+export default Sidebar;

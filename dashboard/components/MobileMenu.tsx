@@ -19,10 +19,9 @@ export function MobileMenu() {
 
       <aside
         className={`
-          fixed lg:static inset-y-0 left-0 z-40
+          lg:hidden fixed inset-y-0 left-0 z-40
           w-64 bg-slate-800 text-white transform transition-transform
           ${open ? "translate-x-0" : "-translate-x-full"}
-          lg:translate-x-0
         `}
       >
         <Sidebar onNavigate={() => setOpen(false)} />

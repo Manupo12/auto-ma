@@ -35,14 +35,15 @@ except ImportError:
 import shutil
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Cookie
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="RILO SAS API", version="1.0.0")
 
+_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[o.strip() for o in _cors_raw.split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -243,6 +244,152 @@ async def chat(req: ChatRequest):
             "contenido": f"❌ Error: {str(e)}",
             "accion": None,
         }
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """
+    Streaming SSE del chat. El frontend lee los chunks con ReadableStream.
+    """
+    import json as _json
+    import re as _re
+    import requests as _req
+
+    def _stream():
+        from backend.chat_handler import (
+            _listar_workspace, _buscar_archivos_paciente, _buscar_archivo,
+            _leer_multiples_docx, _leer_docx, SYSTEM_PROMPT, API_KEY, BASE_URL, MODEL,
+            _construir_contexto_sistema, _log,
+        )
+
+        mensaje = req.mensaje
+        cc = req.paciente_cc or ""
+        historial = req.historial or []
+
+        workspace_files = _listar_workspace()
+        if not cc:
+            m = _re.search(r'\b(\d{6,12})\b', mensaje.replace("'","").replace(".",""))
+            if m: cc = m.group(1)
+
+        archivos_pac = _buscar_archivos_paciente(cc=cc, mensaje=mensaje)
+        if archivos_pac:
+            doc_content = _leer_multiples_docx(archivos_pac, max_chars_total=8000)
+            archivo_nombre = f"{len(archivos_pac)} archivos"
+        else:
+            archivo = _buscar_archivo(mensaje)
+            doc_content = _leer_docx(archivo) if archivo else ""
+            archivo_nombre = archivo.name if archivo else None
+
+        ctx_sistema = _construir_contexto_sistema()
+
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        for h in historial[-6:]:
+            rol = h.get("rol","")
+            c = (h.get("contenido","") or "")[:2000]
+            if rol == "usuario": messages.append({"role":"user","content":c})
+            elif rol == "asistente": messages.append({"role":"assistant","content":c})
+
+        partes = []
+        if ctx_sistema: partes.append(ctx_sistema)
+        partes.append(f"\n═══ MENSAJE ═══\n{mensaje}")
+        if doc_content: partes.append(f"\n\n📄 DOCUMENTOS:\n{doc_content}")
+        if cc: partes.append(f"\n[CC: {cc}]")
+        if workspace_files: partes.append(f"\n\n📁 CARPETA:\n{workspace_files}")
+        messages.append({"role":"user","content":"\n".join(partes)})
+
+        if not API_KEY:
+            yield 'data: {"tipo":"error","contenido":"Sin API key"}\n\n'
+            return
+
+        try:
+            resp = _req.post(
+                f"{BASE_URL}/chat/completions",
+                headers={"Authorization":f"Bearer {API_KEY}","Content-Type":"application/json"},
+                json={"model":MODEL,"messages":messages,"max_tokens":16000,
+                      "temperature":0.7,"stream":True},
+                stream=True, timeout=300,
+            )
+            for line in resp.iter_lines():
+                if not line: continue
+                s = line.decode("utf-8") if isinstance(line, bytes) else line
+                if not s.startswith("data: "): continue
+                raw = s[6:]
+                if raw == "[DONE]": break
+                try:
+                    chunk = _json.loads(raw)
+                    piece = chunk.get("choices",[{}])[0].get("delta",{}).get("content","") or ""
+                    if piece:
+                        yield f'data: {_json.dumps({"tipo":"delta","contenido":piece})}\n\n'
+                except Exception:
+                    pass
+            yield f'data: {_json.dumps({"tipo":"fin","archivo":archivo_nombre,"accion":"documento" if doc_content else None})}\n\n'
+        except Exception as e:
+            yield f'data: {_json.dumps({"tipo":"error","contenido":str(e)[:100]})}\n\n'
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"},
+    )
+
+
+@app.post("/api/chat/audio")
+async def chat_audio(
+    audio: UploadFile = File(...),
+    paciente_cc: str = Form(...),
+):
+    """
+    Recibe audio desde el chat, inicia el workflow completo,
+    retorna task_id para que el chat haga polling del progreso.
+    """
+    if os.getenv("TOMY_COMPLETO_ENABLED", "false").lower() != "true":
+        raise HTTPException(503, "Tomy Completo no habilitado. Activar TOMY_COMPLETO_ENABLED=true en .env")
+
+    ext = Path(audio.filename or "audio.m4a").suffix or ".m4a"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    audio_path = WORKFLOW_AUDIOS_DIR / f"{paciente_cc}_{timestamp}{ext}"
+    audio_path.write_bytes(await audio.read())
+
+    from backend.task_db import TaskDB
+    from backend.workflow_runner import ejecutar_workflow
+    db = TaskDB(os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db"))
+    task_id = db.crear_task(paciente_cc=paciente_cc, audio_path=str(audio_path))
+
+    import threading
+    threading.Thread(
+        target=ejecutar_workflow,
+        kwargs={"audio_path": str(audio_path), "paciente_cc": paciente_cc, "task_id_existente": task_id},
+        daemon=True,
+    ).start()
+
+    duracion_min_est = round(audio_path.stat().st_size / (1024 * 1024 * 0.5))
+
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "mensaje_tomy": (
+            f"✅ Recibí el audio de CC {paciente_cc}. "
+            f"Empiezo a procesarlo ahora — tarda entre 15-25 minutos. "
+            f"Te aviso aquí y por Telegram cuando tenga los 7 formatos listos.\n\n"
+            f"*ID de tarea:* `{task_id}` — podés consultar el progreso en Mi Día."
+        ),
+        "paciente_cc": paciente_cc,
+    }
+
+
+# ─── Archivos paciente para FilePicker ───────────────────────
+
+@app.get("/api/archivos/paciente/{cc}")
+def archivos_paciente(cc: str):
+    result = []
+    for f in sorted(DOCS_DIR.glob(f"*{cc}*.docx"), key=lambda x: x.stat().st_mtime, reverse=True):
+        result.append({
+            "nombre": f.name,
+            "tamano_kb": f.stat().st_size // 1024,
+            "modificado": datetime.fromtimestamp(f.stat().st_mtime).strftime("%d/%m/%Y %H:%M"),
+            "url_descarga": f"/api/download/{f.name}",
+        })
+    return {"ok": True, "archivos": result}
 
 
 @app.post("/api/upload-audio")

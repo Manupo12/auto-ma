@@ -54,11 +54,33 @@ DOCS_DIR = STORAGE / "docs"
 PDFS_DIR = STORAGE / "pdfs"
 DATA_DIR = STORAGE / "data"
 AUDIO_DIR = STORAGE / "audio"
+WORKFLOW_AUDIOS_DIR = STORAGE / "workflow_audios"
 
-for d in [DOCS_DIR, PDFS_DIR, DATA_DIR, AUDIO_DIR]:
+for d in [DOCS_DIR, PDFS_DIR, DATA_DIR, AUDIO_DIR, WORKFLOW_AUDIOS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
-# Almacén de tareas asíncronas de extracción
+# Validadores
+EXTENSIONES_AUDIO = {".mp3", ".m4a", ".wav", ".ogg", ".webm", ".mp4", ".mpeg"}
+AUDIO_MAX_BYTES = 200 * 1024 * 1024
+
+
+def _validar_audio(filename: str, contenido: bytes) -> str:
+    ext = Path(filename).suffix.lower() if filename else ".m4a"
+    if ext not in EXTENSIONES_AUDIO:
+        raise HTTPException(400, f"Formato no soportado: {ext}. Usa MP3, M4A, WAV.")
+    if len(contenido) > AUDIO_MAX_BYTES:
+        raise HTTPException(413, f"Audio muy grande ({len(contenido)//1024//1024}MB). Max 200MB.")
+    return ext
+
+
+def _validar_cc(cc: str) -> str:
+    import re as _re
+    cc = cc.replace("'", "").replace(".", "").replace(",", "").strip()
+    if not _re.match(r'^\d{6,12}$', cc):
+        raise HTTPException(400, f"CC invalida: '{cc}'. Debe ser 6-12 digitos.")
+    return cc
+
+# Almacen de tareas asincronas de extraccion
 _extraccion_tasks: Dict[str, dict] = {}
 
 
@@ -348,7 +370,9 @@ async def chat_audio(
     ext = Path(audio.filename or "audio.m4a").suffix or ".m4a"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     audio_path = WORKFLOW_AUDIOS_DIR / f"{paciente_cc}_{timestamp}{ext}"
-    audio_path.write_bytes(await audio.read())
+    contenido = await audio.read()
+    _validar_audio(audio.filename or "", contenido)
+    audio_path.write_bytes(contenido)
 
     from backend.task_db import TaskDB
     from backend.workflow_runner import ejecutar_workflow
@@ -991,10 +1015,6 @@ def portales_health():
 
 # ─── Tomy Completo: workflow endpoints ─────────────────────────
 
-WORKFLOW_AUDIOS_DIR = STORAGE / "workflow_audios"
-WORKFLOW_AUDIOS_DIR.mkdir(parents=True, exist_ok=True)
-
-
 @app.post("/api/procesar-paciente")
 async def procesar_paciente(
     audio: UploadFile = File(...),
@@ -1012,6 +1032,7 @@ async def procesar_paciente(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     audio_path = WORKFLOW_AUDIOS_DIR / f"{paciente_cc}_{timestamp}{ext}"
     contenido = await audio.read()
+    _validar_audio(audio.filename or "", contenido)
     audio_path.write_bytes(contenido)
 
     from backend.task_db import TaskDB
@@ -1120,7 +1141,7 @@ async def login(req: LoginRequest, response: Response):
     if not validar_pin(req.pin):
         raise HTTPException(401, "PIN incorrecto")
     token = generar_token("Sandra")
-    response.set_cookie("rilo_session", token, httponly=True, samesite="lax", max_age=86400 * 30)
+    response.set_cookie("rilo_session", token, httponly=True, samesite="lax", secure=True, max_age=86400 * 30)
     return {"ok": True, "usuario": "Sandra"}
 
 

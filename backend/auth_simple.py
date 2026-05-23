@@ -16,8 +16,12 @@ def _serializer() -> URLSafeSerializer:
     return URLSafeSerializer(secret, salt="rilo-sas-auth")
 
 
+AUTH_PIN = os.getenv("AUTH_PIN")
+if not AUTH_PIN:
+    raise RuntimeError("AUTH_PIN no configurado en .env - el servidor no puede iniciar")
+
 def validar_pin(pin: str) -> bool:
-    return pin == os.getenv("AUTH_PIN", "1234")
+    return pin == AUTH_PIN
 
 
 def generar_token(usuario: str = "Sandra") -> str:

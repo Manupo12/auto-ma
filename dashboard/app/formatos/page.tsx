@@ -84,7 +84,12 @@ export default function FormatosPage() {
   const eliminarPaciente = async (cc: string) => {
     setEliminando(true);
     try {
-      await fetch(`${API}/api/pacientes/${cc}`, { method: "DELETE" });
+      const res = await fetch(`${API}/api/pacientes/${cc}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(`Error al eliminar: ${res.status} - ${(data as any).detail || ""}`);
+        return;
+      }
       setPacientes(p => p.filter(pa => pa.documento !== cc));
       setPacienteSeleccionado("");
       setFormatos([]);

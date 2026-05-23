@@ -28,8 +28,11 @@ def _calcular_duracion_s(audio_path: Path) -> float:
             capture_output=True, text=True, timeout=30,
         )
         return float(result.stdout.strip())
-    except (FileNotFoundError, ValueError, subprocess.TimeoutExpired) as e:
-        _log(f"ffprobe no disponible ({e}) — asumiendo audio corto, sin chunking")
+    except FileNotFoundError:
+        _log("ffprobe no disponible - asumiendo audio largo (3600s)")
+        return 3600.0
+    except (ValueError, subprocess.TimeoutExpired):
+        _log("ffprobe error - asumiendo audio corto")
         return 0.0
 
 

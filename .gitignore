@@ -1,5 +1,4 @@
 # Secretos y credenciales
-# .env — INCLUIDO (repo privado, decisión del dueño)
 credentials.*
 secrets.*
 
@@ -55,4 +54,3 @@ storage/audit.log
 storage/audios_temp/
 storage/workflow_audios/
 storage/backups/
-.env

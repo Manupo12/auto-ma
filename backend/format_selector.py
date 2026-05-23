@@ -136,7 +136,6 @@ def detectar_estado(datos: dict) -> EstadoCaso:
             "SEGUIMIENTO": EstadoCaso.SEGUIMIENTO,
             "CIERRE": EstadoCaso.CIERRE,
             "PRUEBA": EstadoCaso.PRUEBA_TRABAJO,
-            "PRUEBA DE TRABAJO", "prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desempe", "prueba en el trabajo", "prueba en puesto": EstadoCaso.PRUEBA_TRABAJO,
             "PT": EstadoCaso.PRUEBA_TRABAJO,
         }
         for key, val in mapeo.items():

@@ -78,7 +78,10 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
         confianza = resultado.get("confianza", 0)
         if confianza < 0.6:
             warnings.append(f"Confianza baja del audio: {confianza:.2f}")
-        return {
+            fallidos = sum(1 for r in chunk_resultados if not r.get("ok"))
+    if fallidos / max(len(chunks), 1) > 0.2:
+        warnings.append(f"{fallidos}/{len(chunks)} chunks fallaron")
+    return {
             "texto": resultado["texto"],
             "segmentos": resultado["segmentos"],
             "duracion": duracion,
@@ -93,6 +96,7 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
     _log(f"Chunks: {len(chunks)} de {chunk_dur}s c/u")
 
     textos = []
+    chunk_resultados = []
     segmentos_global = []
     confianzas = []
     offset = 0.0
@@ -111,7 +115,8 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
                 })
             offset += r.get("duracion", chunk_dur)
         except Exception as e:
-            _log(f"Chunk {i+1} falló: {e}")
+            _log(f"Chunk {i+1} fallo: {e}")
+            chunk_resultados.append({"ok": False, "error": str(e)})
             warnings.append(f"Chunk {i+1} no se pudo transcribir: {e}")
 
     try:

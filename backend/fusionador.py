@@ -38,7 +38,7 @@ _CIE10_SEGMENTO = {
 def _derivar_segmento_lesionado(codigos: list, diagnostico_texto: str) -> str:
     """Deriva el segmento corporal lesionado desde códigos CIE-10 o texto."""
     for code in (codigos or []):
-        prefix = str(code)[:2].upper()
+        prefix = str(code).replace(".", "").strip()[:3].upper()
         if prefix in _CIE10_SEGMENTO:
             return _CIE10_SEGMENTO[prefix]
     texto = (diagnostico_texto or "").upper()
@@ -111,10 +111,10 @@ def fusionar_todo(
     paciente.setdefault("telefono", "")
     paciente.setdefault("direccion", "")
     paciente.setdefault("email", "")
-    paciente.setdefault("ciudad", "Neiva")
+    paciente.setdefault("ciudad", os.getenv("RILO_CIUDAD", "Neiva"))
     paciente.setdefault("eps_ips", "")
     paciente.setdefault("afp", "")
-    paciente.setdefault("arl", "POSITIVA COMPANIA DE SEGUROS SA")
+    paciente.setdefault("arl", os.getenv("RILO_ARL_NOMBRE", "POSITIVA COMPANIA DE SEGUROS SA"))
     
     # ── 2. EMPRESA ────────────────────────────────────────────────
     empresa = _merge_dicts(med.get("empresa", {}), pos.get("empresa", {}))
@@ -125,7 +125,7 @@ def fusionar_todo(
     empresa.setdefault("correo", "")
     empresa.setdefault("telefono", "")
     empresa.setdefault("direccion", "")
-    empresa.setdefault("ciudad", "Neiva")
+    empresa.setdefault("ciudad", os.getenv("RILO_CIUDAD", "Neiva"))
     
     # ── 3. SINIESTRO (con reconciliación) ───────────────────────────
     # Prioridad: Positiva (fuente oficial). Pero reconciliar con Medifolios.
@@ -256,7 +256,7 @@ def fusionar_todo(
         "perfil de exigencias, como parte del proceso de rehabilitación integral laboral.",
     )
     visita.setdefault("fecha_hora", "[FECHA Y HORA A DEFINIR]")
-    visita.setdefault("nombre_profesional", "SANDRA PATRICIA POLANIA OSORIO")
+    visita.setdefault("nombre_profesional", os.getenv("RILO_PROFESIONAL_NOMBRE", "SANDRA PATRICIA POLANIA OSORIO"))
     visita.setdefault("nombre_auditor", "DANIEL ALEXANDER MEDINA VICTORIA")
     visita.setdefault(
         "descripcion_estado",

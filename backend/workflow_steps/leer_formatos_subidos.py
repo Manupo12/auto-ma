@@ -31,8 +31,8 @@ def leer_formatos_subidos(task_id: str, max_chars: int = 5000) -> List[Dict]:
                 doc = Document(str(path))
                 texto = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
                 texto = texto[:max_chars]
-                for tabla in doc.tables[:3]:
-                    for row in tabla.rows[:5]:
+                for tabla in doc.tables[:10]:
+                    for row in tabla.rows[:20]:
                         celdas = [c.text.strip()[:60] for c in row.cells if c.text.strip()]
                         if celdas:
                             texto += "\n" + " | ".join(celdas)

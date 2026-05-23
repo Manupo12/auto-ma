@@ -46,6 +46,7 @@ def notificar(task_id: str, paciente_nombre: str, paciente_cc: str,
 
 
 def ejecutar(task_id: str, paciente_nombre: str, paciente_cc: str,
-             formatos_generados: list, warnings: list) -> dict:
+              formatos_generados: list, warnings: list,
+              resumen_verificacion: dict = None, discrepancias: list = None) -> dict:
     ok = notificar(task_id, paciente_nombre, paciente_cc, formatos_generados, warnings)
     return {"ok": ok, "telegram_enviado": ok}

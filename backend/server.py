@@ -450,6 +450,18 @@ def listar_historial():
     return {"ok": True, "pacientes": [{"cc": r[0], "mensajes": r[1], "ultimo": r[2]} for r in rows]}
 
 
+@app.delete("/api/chat/historial/{cc}")
+def eliminar_historial(cc: str):
+    """Elimina el historial de chat de un paciente."""
+    import sqlite3
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "mensaje": f"Historial de CC {cc} eliminado"}
+
+
 @app.post("/api/upload-audio")
 async def upload_audio(
     audio: UploadFile = File(...),

@@ -416,6 +416,19 @@ export default function ChatPage() {
           {pacienteCc && (
             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">CC {pacienteCc}</span>
           )}
+          {pacienteCc && (
+            <button
+              onClick={async () => {
+                await fetch(`${API}/api/chat/historial/${pacienteCc}`, { method: "DELETE" });
+                setMensajes([{ rol: "asistente", contenido: `Chat limpio para CC ${pacienteCc}.`, timestamp: new Date().toISOString() }]);
+                setPacientesHistorial(prev => prev.filter(p => p.cc !== pacienteCc));
+              }}
+              className="flex items-center gap-1 px-3 py-2 text-sm text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              title="Eliminar historial de este paciente"
+            >
+              <Trash2 size={14} /> Borrar chat
+            </button>
+          )}
           <button
             onClick={limpiarChat}
             className="flex items-center gap-1 px-3 py-2 text-sm text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"

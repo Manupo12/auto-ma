@@ -52,50 +52,60 @@ def _get_valor_sintesis(datos: dict, rutas: list) -> str:
 
 
 def _extraer_de_portales(cc: str) -> dict:
-    """Siempre intenta Playwright primero. Cache solo como fallback."""
+    """Extrae datos de portales. Paciente nuevo -> Playwright OBLIGATORIO."""
     from pathlib import Path
     from datetime import timedelta
     import json as _json
 
     cache_path = Path(os.getenv("STORAGE_DIR", "./storage")) / "data" / f"{cc}-completo.json"
+    es_nuevo = not cache_path.exists()
 
-    # 1. SIEMPRE intentar Playwright primero para datos frescos
+    # 1. Si el paciente ya tiene cache fresco (<24h), usarlo
+    if not es_nuevo:
+        try:
+            cached = _json.loads(cache_path.read_text(encoding="utf-8"))
+            extraido = cached.get("_meta", {}).get("extraido_en", "")
+            if extraido:
+                dt = datetime.fromisoformat(extraido)
+                if datetime.now() - dt < timedelta(hours=24):
+                    medi = cached.get("medifolios", {})
+                    pos = cached.get("positiva", {})
+                    if medi.get("nombre1") or pos.get("siniestro_id") or (pos.get("siniestros") and pos["siniestros"][0].get("id")):
+                        _log("Cache fresco (<24h) - usando datos existentes")
+                        return cached
+        except Exception:
+            pass
+
+    # 2. Extraer de portales con Playwright (OBLIGATORIO para nuevos, refresco para existentes)
+    _log("Extrayendo de portales con Playwright...")
     try:
-        _log("Extrayendo portales con Playwright...")
         from backend.playwright_real.orquestador import extraer_paciente_completo
         resultado = asyncio.run(extraer_paciente_completo(cc, guardar=True))
         parcial = resultado.get("_meta", {}).get("parcial", True)
         _log(f"Playwright: {'parcial' if parcial else 'completo'}")
-        if not parcial:
-            return resultado
-        # Si es parcial, intentamos usar cache para complementar
-        if cache_path.exists():
-            try:
-                cached = _json.loads(cache_path.read_text(encoding="utf-8"))
-                # Merge: datos de Playwright + lo que falte del cache
-                for key in ("medifolios", "positiva"):
-                    if not resultado.get(key):
-                        resultado[key] = cached.get(key, {})
-                return resultado
-            except Exception:
-                pass
         return resultado
     except Exception as e:
-        _log(f"Playwright fallo: {e}")
+        _log(f"Playwright error: {e}")
 
-    # 2. Fallback: cache si existe
-    if cache_path.exists():
+    # 3. Si Playwright fallo y NO es nuevo, usar cache viejo como emergencia
+    if not es_nuevo and cache_path.exists():
         try:
-            cached = _json.loads(cache_path.read_text(encoding="utf-8"))
-            _log("Usando cache como fallback")
-            return cached
+            _log("Playwright fallo - usando cache viejo como emergencia")
+            return _json.loads(cache_path.read_text(encoding="utf-8"))
         except Exception:
             pass
 
-    # 3. Sin datos
-    _log("Sin datos de portales disponibles")
+    # 4. Paciente nuevo sin portales -> error critico, detener workflow
+    if es_nuevo:
+        _log("PACIENTE NUEVO sin acceso a portales - VERIFICACION IMPOSIBLE")
+        return {
+            "_meta": {"parcial": True, "error": "Portales no disponibles para paciente nuevo. Intente de nuevo.", "extraido_en": datetime.now().isoformat()},
+            "medifolios": {}, "positiva": {}
+        }
+
+    # 5. Paciente existente, sin portales ni cache
     return {
-        "_meta": {"parcial": True, "error": "Portales no disponibles", "extraido_en": datetime.now().isoformat()},
+        "_meta": {"parcial": True, "error": "Sin datos de portales", "extraido_en": datetime.now().isoformat()},
         "medifolios": {}, "positiva": {}
     }
 

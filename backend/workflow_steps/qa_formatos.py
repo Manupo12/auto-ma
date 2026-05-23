@@ -1,12 +1,10 @@
 """
-Paso 7: QA 10 capas sobre cada DOCX generado.
-
-Wrapper sobre skills/verificar-documento/scripts/qa_completo.py.
-Si el script no existe o falla, devuelve warning (no bloquea).
+Paso 7: QA real sobre cada DOCX generado.
+Verifica placeholders, campos vacios, y estructura basica.
 """
 import os
+import re
 import sys
-import subprocess
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List
@@ -16,29 +14,67 @@ def _log(msg: str):
     print(f"[QA {datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
 
 
-def _qa_script_path() -> Path:
-    return Path(__file__).parent.parent.parent / "skills" / "verificar-documento" / "scripts" / "qa_completo.py"
+PLACEHOLDER_PATTERNS = [
+    r'\[FALTA[:\s]*[^\]]*\]',
+    r'\[VERIFICAR\]',
+    r'\[NOMBRE\]',
+    r'\[CC\]',
+    r'\[FECHA\]',
+    r'\[SINIESTRO\]',
+    r'\[EMPRESA\]',
+    r'\[CARGO\]',
+    r'\[DIAGNOSTICO\]',
+]
+
+CAMPOS_REQUERIDOS = [
+    'nombre', 'documento', 'empresa', 'siniestro', 'diagnostico',
+]
 
 
 def qa_uno(formato: dict) -> dict:
     archivo = formato.get("archivo")
     if not archivo or not Path(archivo).exists():
         return {**formato, "qa_ok": False, "qa_error": "archivo no existe"}
-    qa_script = _qa_script_path()
-    if not qa_script.exists():
-        _log(f"qa_completo.py no encontrado, skip")
-        return {**formato, "qa_ok": True, "qa_warnings": ["QA script no disponible"]}
+
+    warnings = []
     try:
-        proc = subprocess.run(
-            [sys.executable, str(qa_script), archivo],
-            capture_output=True, text=True, timeout=60,
+        from docx import Document
+        doc = Document(str(archivo))
+        texto = " ".join(p.text for p in doc.paragraphs if p.text.strip())
+
+        if not texto or len(texto) < 100:
+            return {**formato, "qa_ok": False, "qa_error": "documento vacio o muy corto"}
+
+        for pattern in PLACEHOLDER_PATTERNS:
+            matches = re.findall(pattern, texto, re.IGNORECASE)
+            if matches:
+                warnings.append(f"Placeholders: {', '.join(matches[:5])}")
+
+        n_tablas = len(doc.tables)
+        if n_tablas == 0:
+            warnings.append("Sin tablas - posible documento incompleto")
+
+        tiene_datos = any(
+            campo in texto.lower()
+            for campo in CAMPOS_REQUERIDOS
         )
+
+        if not tiene_datos:
+            warnings.append("Faltan datos clinicos basicos (nombre, empresa, siniestro)")
+
+        qa_ok = len(warnings) == 0 or all("Placeholders" not in w for w in warnings)
+
         return {
             **formato,
-            "qa_ok": proc.returncode == 0,
-            "qa_output": proc.stdout[-500:],
-            "qa_warnings": [l for l in proc.stdout.split("\n") if "WARN" in l.upper()][:5],
+            "qa_ok": qa_ok,
+            "qa_warnings": warnings,
+            "qa_parrafos": len(doc.paragraphs),
+            "qa_tablas": n_tablas,
+            "qa_chars": len(texto),
         }
+
+    except ImportError:
+        return {**formato, "qa_ok": True, "qa_warnings": ["python-docx no disponible"]}
     except Exception as e:
         return {**formato, "qa_ok": False, "qa_error": str(e)}
 

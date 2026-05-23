@@ -6,9 +6,81 @@ Selecciona qué formatos generar según el estado del caso (NUEVO, SEGUIMIENTO, 
 """
 import os
 import sys
+import json
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List
+
+
+STORAGE = Path(os.getenv("STORAGE_DIR", "./storage"))
+
+
+def _log(msg: str):
+    print(f"[GENERAR_FORMATOS {datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
+
+
+def _cargar_json_paciente(cc: str) -> dict:
+    """Carga el JSON del paciente para enriquecer los datos del LLM."""
+    import glob as _glob
+    patterns = [
+        str(STORAGE / "data" / f"{cc}-completo.json"),
+        str(STORAGE / "data" / f"*{cc}*completo.json"),
+        str(STORAGE / "data" / f"{cc}.json"),
+    ]
+    for pat in patterns:
+        matches = sorted(_glob.glob(pat), key=os.path.getmtime, reverse=True)
+        if matches:
+            with open(matches[0], encoding="utf-8") as f:
+                return json.load(f)
+    return {}
+
+
+def _merge_paciente_con_llm(datos_llm: dict, cc: str) -> dict:
+    """Mezcla datos del JSON del paciente sobre lo que produjo el LLM."""
+    json_paciente = _cargar_json_paciente(cc)
+    if not json_paciente or json_paciente.get("_vacio"):
+        return datos_llm
+
+    medi = json_paciente.get("medifolios", {})
+    pos = json_paciente.get("positiva", {})
+    pac = json_paciente.get("paciente", {})
+
+    # Rellenar paciente si falta
+    if not datos_llm.get("paciente") or not datos_llm["paciente"].get("nombre"):
+        datos_llm["paciente"] = datos_llm.get("paciente") or {}
+        if not datos_llm["paciente"].get("nombre"):
+            nombre = medi.get("nombre1", "") or medi.get("nombre", "") or pac.get("nombre", "")
+            apellido = medi.get("apellido1", "") or pac.get("apellido", "")
+            if nombre:
+                datos_llm["paciente"]["nombre"] = f"{nombre} {apellido}".strip()
+        if not datos_llm["paciente"].get("documento"):
+            datos_llm["paciente"]["documento"] = cc
+        for k in ("direccion", "telefono", "email", "edad", "eps_ips", "afp"):
+            if not datos_llm["paciente"].get(k):
+                val = medi.get(k) or pac.get(k) or ""
+                if val:
+                    datos_llm["paciente"][k] = val
+
+    # Rellenar empresa si falta
+    if not datos_llm.get("empresa") or not datos_llm["empresa"].get("nombre"):
+        datos_llm["empresa"] = datos_llm.get("empresa") or {}
+        empresa = medi.get("empresa") or pac.get("empresa") or json_paciente.get("empresa", {}).get("nombre", "")
+        if empresa:
+            datos_llm["empresa"]["nombre"] = empresa
+        if not datos_llm["empresa"].get("cargo"):
+            cargo = medi.get("cargo") or pac.get("cargo") or pac.get("ocupacion") or ""
+            if cargo:
+                datos_llm["empresa"]["cargo"] = cargo
+
+    # Rellenar siniestro si falta
+    if not datos_llm.get("siniestro") or not datos_llm["siniestro"].get("id_siniestro"):
+        datos_llm["siniestro"] = datos_llm.get("siniestro") or {}
+        if not datos_llm["siniestro"].get("id_siniestro"):
+            siniestro = medi.get("siniestro_medi") or pos.get("siniestro_id") or json_paciente.get("siniestro", {}).get("id_siniestro", "")
+            if siniestro and siniestro != "[VERIFICAR]":
+                datos_llm["siniestro"]["id_siniestro"] = siniestro
+
+    return datos_llm
 
 
 def _log(msg: str):
@@ -78,4 +150,7 @@ def generar_todos(datos: dict, task_id: str) -> Dict:
 def ejecutar(datos_clinicos: dict, task_id: str, verificaciones: list = None) -> dict:
     if not datos_clinicos:
         return {"ok": False, "error": "Sin datos_clinicos para generar"}
+    cc = datos_clinicos.get("paciente", {}).get("documento", "")
+    if cc:
+        datos_clinicos = _merge_paciente_con_llm(datos_clinicos, cc)
     return generar_todos(datos_clinicos, task_id)

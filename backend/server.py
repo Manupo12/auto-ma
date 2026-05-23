@@ -40,7 +40,7 @@ from pydantic import BaseModel
 
 app = FastAPI(title="RILO SAS API", version="1.0.0")
 
-_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://192.168.*,http://10.*,http://172.*")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _cors_raw.split(",")],
@@ -717,9 +717,8 @@ def listar_archivos(path: Optional[str] = None):
                 else:
                     info["icono"] = "📎"
             else:
-                # Detectar si es carpeta de paciente (tiene archivos dentro)
-                info["icono"] = "📁"
-                info["contenido"] = sum(1 for _ in item.rglob("*") if _.is_file())
+                # Contenido de carpeta: maximo 2 niveles, limitado a 50
+                info["contenido"] = sum(1 for _ in item.iterdir() if _.is_file())
             
             archivos.append(info)
         

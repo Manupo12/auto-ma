@@ -26,11 +26,11 @@ def _json_path(cc: str) -> Path:
     return matches[0] if matches else None
 
 
-def _es_reciente(path: Path, horas_max: int = 48) -> bool:
+def _es_reciente(path: Path, horas_max: int = 8760) -> bool:
     if not path or not path.exists():
         return False
     edad_h = (time.time() - path.stat().st_mtime) / 3600
-    return edad_h < horas_max
+    return edad_h < horas_max  # 8760h = 1 año. Siempre usar si existe.
 
 
 def resolver_paciente(cc: str, forzar_extraer: bool = False) -> Tuple[dict, str]:

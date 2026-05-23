@@ -211,7 +211,7 @@ def check_recordatorios() -> List[Dict]:
     
     try:
         fecha_obj = datetime.strptime(fecha_agenda, "%Y-%m-%d")
-    except:
+    except Exception:
         return recordatorios
     
     # ¿Es para mañana? → Recordatorio 1 día antes
@@ -250,7 +250,7 @@ def check_recordatorios() -> List[Dict]:
                         "paciente": cita["paciente"],
                         "hora": cita["hora"],
                     })
-            except:
+            except Exception:
                 pass
     
     return recordatorios

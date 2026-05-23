@@ -136,7 +136,7 @@ def detectar_estado(datos: dict) -> EstadoCaso:
             "SEGUIMIENTO": EstadoCaso.SEGUIMIENTO,
             "CIERRE": EstadoCaso.CIERRE,
             "PRUEBA": EstadoCaso.PRUEBA_TRABAJO,
-            "PRUEBA DE TRABAJO": EstadoCaso.PRUEBA_TRABAJO,
+            "PRUEBA DE TRABAJO", "prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desempe", "prueba en el trabajo", "prueba en puesto": EstadoCaso.PRUEBA_TRABAJO,
             "PT": EstadoCaso.PRUEBA_TRABAJO,
         }
         for key, val in mapeo.items():
@@ -149,9 +149,9 @@ def detectar_estado(datos: dict) -> EstadoCaso:
     tipo_estudio = str(_get_nested(datos, "visita.tipo_estudio") or "").upper()
 
     es_prueba = (
-        "PRUEBA DE TRABAJO" in metodologia
-        or "PRUEBA DE TRABAJO" in concepto
-        or "PRUEBA DE TRABAJO" in tipo_estudio
+        "PRUEBA DE TRABAJO", "prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desempe", "prueba en el trabajo", "prueba en puesto" in metodologia
+        or "PRUEBA DE TRABAJO", "prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desempe", "prueba en el trabajo", "prueba en puesto" in concepto
+        or "PRUEBA DE TRABAJO", "prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desempe", "prueba en el trabajo", "prueba en puesto" in tipo_estudio
         or "PT" == tipo_estudio.strip()
     )
     if es_prueba:

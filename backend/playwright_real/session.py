@@ -23,7 +23,7 @@ from backend.playwright_real import selectores as S
 
 SESSIONS_DIR = Path(os.getenv("PLAYWRIGHT_SESSIONS_DIR", "./storage/playwright_sessions"))
 DEBUG = os.getenv("PLAYWRIGHT_DEBUG", "false").lower() == "true"
-TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "30000"))
+TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "60000"))
 
 
 def _log(msg: str):
@@ -122,6 +122,13 @@ async def login_y_guardar(portal: str) -> Path:
                 raise ValueError(f"portal desconocido: {portal}")
 
             state_path = _state_path(portal)
+            # Backup antes de sobreescribir
+            if state_path.exists():
+                try:
+                    import shutil
+                    shutil.copy2(str(state_path), str(state_path) + ".bak")
+                except Exception:
+                    pass
             await ctx.storage_state(path=str(state_path))
             _log(f"{portal.upper()}: storage_state guardado en {state_path}")
             return state_path

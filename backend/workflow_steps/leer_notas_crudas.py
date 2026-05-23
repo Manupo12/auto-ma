@@ -57,17 +57,19 @@ def _fast_scan(directory: Path, max_depth: int = 2, timeout_s: float = 5.0) -> l
     return results
 
 
-def leer_notas_crudas(cc: str, max_archivos: int = 5) -> List[Dict]:
-    """Busca archivos del workspace con el CC en nombre o contenido."""
+def leer_notas_crudas(cc: str, max_archivos: int = 5) -> tuple:
+    """Busca archivos del workspace con el CC. Retorna (lista, completo)."""
     workspace = Path(os.getenv("WORKSPACE_DIR", str(Path.home() / "rilo-workspace")))
     if not workspace.exists():
         _log(f"Workspace no existe: {workspace}")
-        return []
+        return [], True
 
     candidatos = []
     extensiones = (".txt", ".md", ".docx")
+    completo = True
     try:
         archivos = _fast_scan(workspace, max_depth=2, timeout_s=8.0)
+        completo = len(archivos) < 500  # si se corto por timeout, incomplete
         for path in archivos:
             if path.suffix.lower() not in extensiones:
                 continue
@@ -84,16 +86,18 @@ def leer_notas_crudas(cc: str, max_archivos: int = 5) -> List[Dict]:
                     continue
 
             contenido = _leer_texto(path, max_chars=500)
-            if cc in contenido:
+            cc_norm = cc.replace(".","").replace("-","").replace("\x27","")
+            contenido_limpio = contenido.replace(".","").replace("-","").replace("\x27","")
+            if cc_norm in contenido_limpio:
                 contenido_completo = _leer_texto(path)
                 candidatos.append({"nombre": path.name, "ruta": str(path), "contenido": contenido_completo})
     except Exception as e:
         _log(f"Error escaneando: {e}")
 
     candidatos.sort(key=lambda d: Path(d["ruta"]).stat().st_mtime, reverse=True)
-    return candidatos[:max_archivos]
+    return candidatos[:max_archivos], completo
 
 
 def ejecutar(paciente_cc: str) -> dict:
-    notas = leer_notas_crudas(paciente_cc)
-    return {"notas_crudas": notas, "total": len(notas)}
+    notas, completo = leer_notas_crudas(paciente_cc)
+    return {"notas_crudas": notas, "total": len(notas), "escaneo_completo": completo}

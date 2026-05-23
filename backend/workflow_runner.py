@@ -33,6 +33,19 @@ STEPS = [
     ("notificar_listo", "notificando", 10),
 ]
 
+TIMEOUT_POR_PASO = {
+    "transcribir": 600,
+    "resolver_paciente": 120,
+    "leer_notas_crudas": 60,
+    "leer_formatos_subidos": 60,
+    "sintetizar_maestro": 300,
+    "verificar_portales": 180,
+    "generar_formatos": 120,
+    "qa_formatos": 60,
+    "convertir_pdf": 120,
+    "notificar_listo": 30,
+}
+
 
 def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str = None) -> Dict:
     """Ejecuta los 9 pasos secuencialmente. Persiste estado en task_db."""
@@ -61,7 +74,15 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
         try:
             modulo = __import__(f"backend.workflow_steps.{step_name}", fromlist=["ejecutar"])
             kwargs = _build_kwargs(step_name, contexto)
-            resultado_step = modulo.ejecutar(**kwargs)
+            timeout = TIMEOUT_POR_PASO.get(step_name, 120)
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(modulo.ejecutar, **kwargs)
+                try:
+                    resultado_step = future.result(timeout=timeout)
+                except concurrent.futures.TimeoutError:
+                    db.marcar_error(task_id, paso=paso_num, error=f"Timeout en {step_name} (>{timeout}s)")
+                    return {"task_id": task_id, "estado": f"error_en_paso_{paso_num}", "error": f"Timeout >{timeout}s"}
             contexto[step_name] = resultado_step
             _log(f"PASO {paso_num} OK en {time.time()-t_step:.1f}s")
 

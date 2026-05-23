@@ -1,6 +1,6 @@
-# RILO SAS — Plan Integral de Mejoras v3
+# RILO SAS — Plan Integral de Mejoras v4
 
-> Auditoría quirúrgica completa. 3 pasadas anteriores no encontraron esto.
+> Auditoría quirúrgica completa. 4 pasadas.
 > Cada item tiene archivo, línea exacta y descripción del fix real.
 > Agente de implementación: **OpenCode**.
 
@@ -12,6 +12,7 @@
 - [🟠 ALTOS — 14 items](#-altos)
 - [🟡 MEDIOS — 12 items](#-medios)
 - [🟢 BAJOS — 6 items](#-bajos)
+- [💬 Chat y progreso del workflow — 9 items](#-chat-y-progreso-del-workflow)
 - [🗑️ Código muerto — 17 archivos](#️-código-muerto)
 - [📋 Orden de implementación](#-orden-de-implementación)
 
@@ -701,6 +702,192 @@ Remanente de versión anterior, no referenciada por ningún código actual.
 
 ---
 
+## 💬 Chat y Progreso del Workflow
+
+El bug reportado: el chat muestra "Paso 1/9 — Transcribiendo audio" y nunca avanza. El fix parcial del agente (cambiar `/9` por `/10`, agregar "Progreso:" al mensaje inicial) solo arregla la presentación visual. Hay **9 causas raíz** reales.
+
+---
+
+### P-1 · La causa raíz: el polling cada 10s salta pasos enteros (CRÍTICO)
+
+**Archivo:** `dashboard/app/chat/page.tsx` líneas 160–239
+
+El polling pregunta el estado de la tarea cada 10 segundos. Si el workflow pasa de paso 1 a paso 3 en 8 segundos (normal — resolver_paciente y leer_notas_crudas son rápidos), el primer poll ve paso 3 directamente. El usuario nunca ve "Paso 2/10". Si el workflow completa los pasos 1–4 en menos de 10 segundos, el primer poll puede encontrar el sistema ya en paso 5. Desde la perspectiva del usuario: el chat se queda congelado en "Paso 1/10" por 10 segundos, luego salta directamente a "Paso 5/10 — Sintetizando".
+
+**Fix:** Reducir el intervalo de polling a 3 segundos durante los primeros pasos (rápidos) y mantenerlo en 10s durante el paso 5 (síntesis LLM que tarda 5+ minutos). O mejor: implementar SSE desde el backend para que los updates sean push, no pull.
+
+```typescript
+// Intervalo adaptativo según el paso actual
+const delay = task.paso_actual <= 4 ? 3000 : 10000;
+```
+
+---
+
+### P-2 · `catch {}` vacío silencia todos los errores del polling
+
+**Archivo:** `dashboard/app/chat/page.tsx` línea 236
+
+```typescript
+} catch {}  // silencia todo: errores de red, 500s, timeouts
+```
+
+Si el servidor se cae mientras hay un workflow corriendo, el polling falla silenciosamente y sigue intentando cada 10 segundos indefinidamente. Sandra no ve ningún mensaje de error.
+
+**Fix:**
+```typescript
+} catch (e) {
+  erroresConsecutivos++;
+  if (erroresConsecutivos >= 3) {
+    clearInterval(intervalo);
+    setMensajes(prev => [...prev, {
+      rol: "asistente",
+      contenido: "No puedo contactar al servidor. Revisá que el backend esté corriendo.",
+      timestamp: new Date().toISOString(),
+    }]);
+  }
+}
+```
+
+---
+
+### P-3 · El split de string para editar el progreso es frágil
+
+**Archivo:** `dashboard/app/chat/page.tsx` líneas 224–229
+
+```typescript
+contenido: (nuevo[i].contenido.includes("*Progreso:*") 
+  ? nuevo[i].contenido.split("*Progreso:*")[0]   // toma todo ANTES de la PRIMERA ocurrencia
+  : nuevo[i].contenido) +
+  `\n\n*Progreso:* Paso ${task.paso_actual}/10 — ${pasoLabel}`,
+```
+
+Si el mensaje tiene más de una ocurrencia de `"*Progreso:*"` (o si el usuario escribió esa palabra en el chat), el split toma solo la primera parte y borra el resto del mensaje — incluyendo el ID de tarea.
+
+**Fix:** Usar el índice de la **última** ocurrencia en lugar de `split`:
+```typescript
+const markerIndex = nuevo[i].contenido.lastIndexOf("\n\n*Progreso:*");
+const base = markerIndex >= 0
+  ? nuevo[i].contenido.slice(0, markerIndex)
+  : nuevo[i].contenido;
+nuevo[i] = { ...nuevo[i], contenido: base + `\n\n*Progreso:* Paso ${task.paso_actual}/10 — ${pasoLabel}` };
+```
+
+---
+
+### P-4 · El polling no para en estados desconocidos — loop infinito
+
+**Archivo:** `dashboard/app/chat/page.tsx` líneas 191–235
+
+El polling solo para en: `"listo"`, `estado?.startsWith("error")`, `"esperando_datos"`. Cualquier otro estado (incluyendo `"cancelado"`, `"listo_incompleto"`, `"listo_con_advertencias"` que se proponen en este plan) hace que el polling corra **para siempre**.
+
+**Fix:** Invertir la lógica — definir explícitamente los estados que CONTINÚAN el polling, no los que lo paran:
+
+```typescript
+const ESTADOS_EN_PROGRESO = new Set([
+  "transcribiendo", "resolviendo_paciente", "leyendo_notas",
+  "leyendo_formatos", "sintetizando", "verificando_portales",
+  "generando", "qa", "pdf", "notificando"
+]);
+
+if (!ESTADOS_EN_PROGRESO.has(task.estado)) {
+  clearInterval(intervalo);  // para en cualquier estado final, conocido o no
+  // luego decide qué mostrar según el estado
+}
+```
+
+---
+
+### P-5 · `paso_actual` se actualiza en DB ANTES de ejecutar el paso
+
+**Archivo:** `backend/workflow_runner.py` líneas 57–62
+
+```python
+db.actualizar_paso(task_id, paso=paso_num, estado=estado_label)  # ← se escribe antes
+resultado_step = modulo.ejecutar(**kwargs)                          # ← recién acá corre
+```
+
+Si el frontend pollea entre estas dos líneas, ve `paso_actual = 2` pero el paso 2 aún no terminó (ni siquiera empezó a ejecutar). Si el paso 2 falla 1 segundo después, la DB ya decía que estaba en paso 2 cuando en realidad falló.
+
+Esto es aceptable para mostrar "qué está haciendo ahora", pero el estado debe reflejar "ejecutando" no "completado". El problema es que no hay distinción entre "iniciando paso N" y "paso N completado".
+
+**Fix:** Agregar `paso_completado` como campo separado en `workflow_tasks`, o usar estados diferenciados: `"iniciando_transcripcion"` vs `"transcripcion_completa"`.
+
+---
+
+### P-6 · Sin timeout por paso — el workflow puede congelarse para siempre
+
+**Archivo:** `backend/workflow_runner.py` línea 62
+
+```python
+resultado_step = modulo.ejecutar(**kwargs)  # sin timeout
+```
+
+Si `sintetizar_maestro` se cuelga esperando respuesta del LLM (timeout de red, DeepSeek caído), la tarea queda en `"sintetizando"` indefinidamente. No hay mecanismo que la desbloquee.
+
+**Fix:** Ejecutar cada paso con timeout usando `concurrent.futures`:
+```python
+import concurrent.futures
+with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+    future = executor.submit(modulo.ejecutar, **kwargs)
+    try:
+        resultado_step = future.result(timeout=TIMEOUT_POR_PASO.get(step_name, 300))
+    except concurrent.futures.TimeoutError:
+        db.marcar_error(task_id, paso=paso_num, error=f"Timeout en {step_name} (>{TIMEOUT_POR_PASO.get(step_name, 300)}s)")
+        return
+```
+
+Tiempos razonables por paso:
+- `transcribir`: 600s (audio largo)
+- `sintetizar_maestro`: 300s (LLM)
+- `generar_formatos`: 120s
+- Resto: 60s
+
+---
+
+### P-7 · Threading + SQLite sin WAL mode — posibles locks bajo carga
+
+**Archivo:** `backend/server.py` líneas 382–387  
+**Archivo:** `backend/task_db.py` líneas 61–64
+
+El workflow corre en un `threading.Thread` daemon. La conexión SQLite se abre y cierra en cada operación sin pooling. Bajo carga concurrente (múltiples workflows, frontend polleando), SQLite puede retornar `database is locked` que el workflow captura como excepción y marca el paso como fallido.
+
+**Fix:**
+1. Activar WAL mode al crear la DB: `conn.execute("PRAGMA journal_mode=WAL")`
+2. Agregar `timeout=30` a todas las conexiones: `sqlite3.connect(path, timeout=30)`
+3. El WAL mode permite lecturas concurrentes sin bloquear al escritor
+
+---
+
+### P-8 · Error message hardcodeado con `/9` en lugar de `/10`
+
+**Archivo:** `dashboard/app/chat/page.tsx` línea 207
+
+```typescript
+contenido: `Hubo un problema en el paso ${task.paso_actual}/9: ...`
+//                                                           ↑ debería ser /10
+```
+
+**Fix:** Cambiar a `/10` o mejor, usar una constante `TOTAL_PASOS = 10` definida una sola vez.
+
+---
+
+### P-9 · El frontend no maneja el estado `"listo_con_advertencias"` ni `"listo_incompleto"`
+
+**Archivo:** `dashboard/app/chat/page.tsx` líneas 191–200
+
+El frontend solo conoce `"listo"` como estado final exitoso. Los nuevos estados propuestos en este plan (`"listo_con_advertencias"`, `"listo_incompleto"`, `"listo_sin_notificacion"`) caerían en el `else` del polling y mostrarían el label de progreso en lugar del mensaje de finalización.
+
+**Fix:** Ampliar la detección de estados finales:
+```typescript
+const ESTADOS_LISTOS = ["listo", "listo_con_advertencias", "listo_incompleto", "listo_sin_notificacion"];
+if (ESTADOS_LISTOS.includes(task.estado)) {
+  clearInterval(intervalo);
+  // mostrar resultados con badge según el estado
+}
+```
+
+---
+
 ## 🗑️ Código Muerto
 
 Estos 17 archivos existen en `backend/` pero no son importados por ningún otro módulo activo. Crean confusión, hacen que las revisiones pasen de largo errores reales, y agrandan el repo sin valor.
@@ -730,6 +917,21 @@ Estos 17 archivos existen en `backend/` pero no son importados por ningún otro 
 ---
 
 ## 📋 Orden de Implementación
+
+### Fase 0 — El chat debe mostrar qué está pasando (sin esto nada es testeable)
+
+Sin progreso visible, no se puede saber si el resto de los fixes funciona.
+
+| # | Item | Por qué primero |
+|---|------|-----------------|
+| 0.1 | **P-1** Intervalo adaptativo de polling (3s pasos rápidos, 10s lento) | El usuario ve cada paso real |
+| 0.2 | **P-4** Polling para en cualquier estado final, no solo los conocidos | No loops infinitos |
+| 0.3 | **P-3** `lastIndexOf` en lugar de `split` para editar el progreso | El mensaje no se rompe |
+| 0.4 | **P-2** `catch` con contador de errores consecutivos | Sandra sabe si el servidor cayó |
+| 0.5 | **P-6** Timeout por paso en `workflow_runner` | El workflow no se congela forever |
+| 0.6 | **P-7** WAL mode + timeout=30 en SQLite | Evita locks bajo carga |
+| 0.7 | **P-8** Hardcoded `/9` → `/10` | Mensaje de error correcto |
+| 0.8 | **P-9** Frontend conoce `listo_con_advertencias` y `listo_incompleto` | Estados nuevos no rompen el chat |
 
 ### Fase 1 — Hacer que el sistema genere datos reales (no inventados)
 
@@ -800,4 +1002,4 @@ git check-ignore -v .env
 
 ---
 
-*Plan v3 — 2026-05-23 — 9 críticos · 14 altos · 12 medios · 6 bajos · 17 archivos muertos*
+*Plan v4 — 2026-05-23 — 9 críticos · 14 altos · 12 medios · 6 bajos · 9 bugs de chat/progreso · 17 archivos muertos — Total: 50+ items*

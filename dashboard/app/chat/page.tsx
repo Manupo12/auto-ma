@@ -158,14 +158,18 @@ export default function ChatPage() {
   }, []);
 
   const iniciarPollingTarea = useCallback((taskId: string, cc: string) => {
-    const intervalo = setInterval(async () => {
+    let erroresConsecutivos = 0;
+    const ESTADOS_FINALES = ["listo", "listo_con_advertencias", "listo_incompleto", "listo_sin_notificacion", "cancelado"];
+
+    const poll = async () => {
       try {
         const res = await fetch(`${API}/api/tasks/${taskId}`);
         const data = await res.json();
         const task = data.task;
+        erroresConsecutivos = 0;
 
-        if (task.estado === "listo") {
-          clearInterval(intervalo);
+        if (ESTADOS_FINALES.includes(task.estado) || task.estado === "listo") {
+          clearInterval(timer!);
           const formatos = task.resultado?.formatos_generados || [];
           const verificacion = task.resultado?.verificacion;
           const discrepancias = task.resultado?.discrepancias || [];
@@ -184,12 +188,12 @@ export default function ChatPage() {
               msg += `- **ATENCION: ${verificacion.discrepancias} discrepancia(s)**\n`;
               for (const d of discrepancias) {
                 if (d.estado === "discrepancia") {
-                  msg += `  - ${d.campo}: dice \"${d.sintesis}\" pero portal dice \"${d.portal}\"\n`;
+                  msg += `  - ${d.campo}: \"${d.sintesis}\" pero portal dice \"${d.portal}\"\n`;
                 }
               }
             }
             if (verificacion.faltantes > 0) {
-              msg += `- Datos faltantes: ${verificacion.faltantes} — necesitas completarlos manualmente\n`;
+              msg += `- Datos faltantes: ${verificacion.faltantes} - completalos manualmente\n`;
             }
           }
 
@@ -201,17 +205,17 @@ export default function ChatPage() {
             formatos: formatos,
           }]);
         } else if (task.estado?.startsWith("error")) {
-          clearInterval(intervalo);
+          clearInterval(timer!);
           setMensajes((prev) => [...prev, {
             rol: "asistente",
-            contenido: `Hubo un problema en el paso ${task.paso_actual}/9: ${task.error || "error desconocido"}. Intentamos de nuevo?`,
+            contenido: `Hubo un problema en el paso ${task.paso_actual}/10: ${(task.error || "error desconocido").slice(0, 200)}. Intentamos de nuevo?`,
             timestamp: new Date().toISOString(),
           }]);
         } else if (task.estado === "esperando_datos") {
-          clearInterval(intervalo);
+          clearInterval(timer!);
           setMensajes((prev) => [...prev, {
             rol: "asistente",
-            contenido: `Procese el audio pero me faltan algunos datos criticos para completar los formatos. Me los podes dar?\n\nDatos faltantes: ${(task.resultado?.campos_faltantes || []).join(", ")}`,
+            contenido: `Procese el audio pero faltan datos: ${(task.resultado?.campos_faltantes || []).join(", ")}`,
             timestamp: new Date().toISOString(),
           }]);
         } else {
@@ -220,22 +224,34 @@ export default function ChatPage() {
             const nuevo = [...prev];
             for (let i = nuevo.length - 1; i >= 0; i--) {
               if ((nuevo[i] as ChatMessage).taskId === taskId) {
-                nuevo[i] = {
-                  ...nuevo[i],
-                  contenido: (nuevo[i].contenido.includes("*Progreso:*") 
-                    ? nuevo[i].contenido.split("*Progreso:*")[0] 
-                    : nuevo[i].contenido) +
-                    `\n\n*Progreso:* Paso ${task.paso_actual}/10 — ${pasoLabel}`,
-                };
+                const marker = nuevo[i].contenido.lastIndexOf("\n\n*Progreso:*");
+                const base = marker >= 0 ? nuevo[i].contenido.slice(0, marker) : nuevo[i].contenido;
+                nuevo[i] = { ...nuevo[i], contenido: base + `\n\n*Progreso:* Paso ${task.paso_actual}/10 - ${pasoLabel}` };
                 break;
               }
             }
             return nuevo;
           });
+
+          // P-1: intervalo adaptativo
+          const delay = task.paso_actual <= 4 ? 3000 : 10000;
+          clearInterval(timer!);
+          timer = setInterval(poll, delay);
         }
-      } catch {}
-    }, 10000);
-    pollingRef.current = intervalo;
+      } catch {
+        erroresConsecutivos++;
+        if (erroresConsecutivos >= 3) {
+          clearInterval(timer!);
+          setMensajes((prev) => [...prev, {
+            rol: "asistente",
+            contenido: "No puedo contactar al servidor. Revisa que el backend este corriendo en localhost:8000.",
+            timestamp: new Date().toISOString(),
+          }]);
+        }
+      }
+    };
+
+    let timer: ReturnType<typeof setInterval> | null = setInterval(poll, 3000);
   }, []);
 
   const handleAudioChat = async (file: File) => {

@@ -75,7 +75,7 @@ def generar_todos(datos: dict, task_id: str) -> Dict:
     }
 
 
-def ejecutar(datos_clinicos: dict, task_id: str) -> dict:
+def ejecutar(datos_clinicos: dict, task_id: str, verificaciones: list = None) -> dict:
     if not datos_clinicos:
         return {"ok": False, "error": "Sin datos_clinicos para generar"}
     return generar_todos(datos_clinicos, task_id)

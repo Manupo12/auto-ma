@@ -81,12 +81,15 @@ def qa_uno(formato: dict) -> dict:
 
 def qa_todos(formatos: List[dict]) -> Dict:
     resultados = [qa_uno(f) for f in formatos]
+    todos_ok = all(r.get("qa_ok") for r in resultados)
+    con_placeholders = sum(1 for r in resultados if any("Placeholders" in w for w in r.get("qa_warnings", [])))
     return {
-        "ok": True,
+        "ok": todos_ok,
         "resultados": resultados,
         "total": len(formatos),
         "exitosos": sum(1 for r in resultados if r.get("qa_ok")),
         "con_warnings": sum(1 for r in resultados if r.get("qa_warnings")),
+        "con_placeholders": con_placeholders,
     }
 
 

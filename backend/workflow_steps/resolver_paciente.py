@@ -1,9 +1,10 @@
 """
 Paso 2: Resolver datos del paciente.
 
-1. Si existe JSON pre-extraído reciente (<48h) → usarlo.
-2. Si no existe y FASE_A_ENABLED → disparar Playwright en vivo.
-3. Si no existe y Fase A desactivada → devolver vacío con marca.
+Logica:
+- Paciente NUEVO (sin cache) -> Playwright OBLIGATORIO. Si falla, error.
+- Paciente EXISTENTE <24h -> usar cache, no abrir portales.
+- Paciente EXISTENTE >24h -> Playwright para refrescar. Si falla, usar cache viejo.
 """
 import asyncio
 import json
@@ -11,7 +12,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Tuple
 
 
@@ -26,37 +27,43 @@ def _json_path(cc: str) -> Path:
     return matches[0] if matches else None
 
 
-def _es_reciente(path: Path, horas_max: int = 8760) -> bool:
-    if not path or not path.exists():
-        return False
-    edad_h = (time.time() - path.stat().st_mtime) / 3600
-    return edad_h < horas_max  # 8760h = 1 año. Siempre usar si existe.
+def _edad_horas(path: Path) -> float:
+    return (time.time() - path.stat().st_mtime) / 3600 if path and path.exists() else 99999
 
 
 def resolver_paciente(cc: str, forzar_extraer: bool = False) -> Tuple[dict, str]:
-    """Retorna (datos_dict, fuente: 'cache'|'extraido_al_vuelo'|'sin_datos')."""
-    if not forzar_extraer:
-        path = _json_path(cc)
-        if _es_reciente(path):
-            _log(f"CC {cc}: usando cache ({path.name})")
-            with open(path, encoding="utf-8") as f:
-                return json.load(f), "cache"
+    path = _json_path(cc)
+    edad = _edad_horas(path)
+    es_nuevo = not path or not path.exists()
 
-    if os.getenv("FASE_A_ENABLED", "false").lower() != "true":
-        _log(f"CC {cc}: Fase A desactivada, sin datos verificados")
-        return {"cc": cc, "_vacio": True, "razon": "FASE_A_ENABLED=false"}, "sin_datos"
+    # Caso 1: Cache fresco (<24h) y no forzar -> usar cache
+    if not es_nuevo and edad < 24 and not forzar_extraer:
+        _log(f"CC {cc}: cache fresco ({edad:.1f}h) -> usando {path.name}")
+        with open(path, encoding="utf-8") as f:
+            return json.load(f), "cache"
 
-    _log(f"CC {cc}: extrayendo al vuelo con Playwright")
+    # Caso 2: Extraer de portales con Playwright (OBLIGATORIO para nuevos)
+    _log(f"CC {cc}: {'paciente NUEVO -> Playwright OBLIGATORIO' if es_nuevo else f'cache viejo ({edad:.1f}h) -> refrescando con Playwright'}")
     try:
         from backend.playwright_real.orquestador import extraer_paciente_completo
         datos = asyncio.run(extraer_paciente_completo(cc, guardar=True))
+        parcial = datos.get("_meta", {}).get("parcial", True)
+        _log(f"CC {cc}: Playwright {'parcial' if parcial else 'completo'}")
         return datos, "extraido_al_vuelo"
     except Exception as e:
-        _log(f"CC {cc}: error en extracción - {e}")
-        return {"cc": cc, "_vacio": True, "error": str(e)}, "sin_datos"
+        _log(f"CC {cc}: Playwright error - {e}")
+
+    # Caso 3: Playwright fallo, pero hay cache viejo -> emergencia
+    if not es_nuevo and path.exists():
+        _log(f"CC {cc}: usando cache viejo como emergencia ({edad:.1f}h)")
+        with open(path, encoding="utf-8") as f:
+            return json.load(f), "cache_viejo"
+
+    # Caso 4: Paciente nuevo, Playwright fallo, sin cache -> error
+    _log(f"CC {cc}: SIN DATOS - paciente nuevo sin acceso a portales")
+    return {"cc": cc, "_vacio": True, "error": "Playwright no disponible para paciente nuevo"}, "sin_datos"
 
 
 def ejecutar(paciente_cc: str, forzar_extraer: bool = False) -> dict:
-    """Punto de entrada para workflow_runner."""
     datos, fuente = resolver_paciente(paciente_cc, forzar_extraer)
     return {"datos_portales": datos, "fuente": fuente}

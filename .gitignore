@@ -55,3 +55,4 @@ storage/audit.log
 storage/audios_temp/
 storage/workflow_audios/
 storage/backups/
+.env

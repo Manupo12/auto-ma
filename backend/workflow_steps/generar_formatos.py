@@ -139,7 +139,7 @@ def generar_todos(datos: dict, task_id: str) -> Dict:
             errores.append({"formato": fmt, "error": f"{type(e).__name__}: {e}"})
 
     return {
-        "ok": len(generados) > 0,
+        "ok": len(errores) == 0,
         "formatos_generados": generados,
         "errores": errores,
         "total": len(formatos),

@@ -182,7 +182,15 @@ def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, fo
         try:
             datos_clinicos = json.loads(match.group(1))
         except json.JSONDecodeError as e:
-            _log(f"JSON clinico inválido: {e}")
+            _log(f"JSON clinico invalido: {e}")
+
+    if datos_clinicos is None or not isinstance(datos_clinicos, dict) or not datos_clinicos:
+        return {
+            "ok": False,
+            "error": "LLM no devolvio JSON clinico valido",
+            "respuesta_cruda": respuesta_texto[:500],
+            "tokens": resultado.get("tokens", {}),
+        }
 
     return {
         "ok": True,

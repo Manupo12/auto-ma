@@ -88,10 +88,10 @@ def _log(msg: str):
 
 
 FORMATOS_POR_ESTADO = {
-    "NUEVO": ["analisis", "medidas", "recomendaciones", "citacion", "valoracion"],
-    "SEGUIMIENTO": ["analisis", "medidas", "recomendaciones", "valoracion"],
-    "CIERRE": ["analisis", "medidas", "recomendaciones", "cierre", "valoracion"],
-    "PRUEBA_TRABAJO": ["analisis", "prueba", "valoracion"],
+    "NUEVO": ["analisis", "medidas", "recomendaciones", "citacion", "valoracion", "cierre", "prueba"],
+    "SEGUIMIENTO": ["analisis", "medidas", "recomendaciones", "valoracion", "citacion", "prueba", "cierre"],
+    "CIERRE": ["analisis", "medidas", "recomendaciones", "cierre", "valoracion", "citacion", "prueba"],
+    "PRUEBA_TRABAJO": ["analisis", "prueba", "valoracion", "medidas", "recomendaciones", "cierre", "citacion"],
 }
 
 FORMATO_FUNC = {

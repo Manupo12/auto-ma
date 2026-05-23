@@ -392,10 +392,11 @@ async def chat_audio(
         "ok": True,
         "task_id": task_id,
         "mensaje_tomy": (
-            f"✅ Recibí el audio de CC {paciente_cc}. "
-            f"Empiezo a procesarlo ahora — tarda entre 15-25 minutos. "
-            f"Te aviso aquí y por Telegram cuando tenga los 7 formatos listos.\n\n"
-            f"*ID de tarea:* `{task_id}` — podés consultar el progreso en Mi Día."
+            f"Recibi el audio de CC {paciente_cc}. "
+            f"Empiezo a procesarlo ahora - tarda entre 15-25 minutos. "
+            f"Te aviso aqui y por Telegram cuando tenga los 7 formatos listos.\n\n"
+            f"*ID de tarea:* `{task_id}`\n\n"
+            f"*Progreso:* Paso 1/10 - Transcribiendo audio..."
         ),
         "paciente_cc": paciente_cc,
     }

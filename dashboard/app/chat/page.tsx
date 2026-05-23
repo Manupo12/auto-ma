@@ -222,8 +222,10 @@ export default function ChatPage() {
               if ((nuevo[i] as ChatMessage).taskId === taskId) {
                 nuevo[i] = {
                   ...nuevo[i],
-                  contenido: nuevo[i].contenido.split("\n\n*Progreso:*")[0] +
-                    `\n\n*Progreso:* Paso ${task.paso_actual}/9 — ${pasoLabel}`,
+                  contenido: (nuevo[i].contenido.includes("*Progreso:*") 
+                    ? nuevo[i].contenido.split("*Progreso:*")[0] 
+                    : nuevo[i].contenido) +
+                    `\n\n*Progreso:* Paso ${task.paso_actual}/10 — ${pasoLabel}`,
                 };
                 break;
               }

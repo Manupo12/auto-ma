@@ -10,17 +10,17 @@ export async function POST(request: NextRequest) {
     const { mensaje, paciente_cc } = body;
 
     // Reenviar a Hermes Agent (corre en localhost)
-    const hermesResponse = await fetch("http://localhost:8000/api/chat", {
+    const backendResponse = await fetch("http://localhost:8000/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mensaje, paciente_cc }),
     });
 
-    if (!hermesResponse.ok) {
-      throw new Error(`Hermes respondió ${hermesResponse.status}`);
+    if (!backendResponse.ok) {
+      throw new Error(`Hermes respondió ${backendResponse.status}`);
     }
 
-    const data = await hermesResponse.json();
+    const data = await backendResponse.json();
     return NextResponse.json(data);
   } catch (error) {
     console.error("Error en chat API:", error);

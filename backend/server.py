@@ -404,15 +404,13 @@ def guardar_historial(req: ChatHistorialRequest):
     """Guarda la conversacion de un paciente en BD."""
     import sqlite3
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
-    conn = sqlite3.connect(db_path)
-    for msg in req.mensajes:
-        conn.execute(
-            "INSERT INTO chat_history (paciente_cc, rol, contenido, accion, archivo) VALUES (?,?,?,?,?)",
-            (req.paciente_cc, msg.get("rol", ""), msg.get("contenido", ""),
-             msg.get("accion", ""), msg.get("archivo", ""))
-        )
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(db_path, timeout=30) as conn:
+        for msg in req.mensajes:
+            conn.execute(
+                "INSERT INTO chat_history (paciente_cc, rol, contenido, accion, archivo) VALUES (?,?,?,?,?)",
+                (req.paciente_cc, msg.get("rol", ""), msg.get("contenido", ""),
+                 msg.get("accion", ""), msg.get("archivo", ""))
+            )
     return {"ok": True, "guardados": len(req.mensajes)}
 
 
@@ -421,12 +419,11 @@ def cargar_historial(cc: str):
     """Carga la conversacion de un paciente."""
     import sqlite3
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
-    conn = sqlite3.connect(db_path)
-    rows = conn.execute(
-        "SELECT rol, contenido, accion, archivo, timestamp FROM chat_history WHERE paciente_cc=? ORDER BY timestamp",
-        (cc,)
-    ).fetchall()
-    conn.close()
+    with sqlite3.connect(db_path, timeout=30) as conn:
+        rows = conn.execute(
+            "SELECT rol, contenido, accion, archivo, timestamp FROM chat_history WHERE paciente_cc=? ORDER BY timestamp",
+            (cc,)
+        ).fetchall()
     return {
         "ok": True,
         "paciente_cc": cc,
@@ -442,11 +439,10 @@ def listar_historial():
     """Lista pacientes con conversaciones guardadas."""
     import sqlite3
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
-    conn = sqlite3.connect(db_path)
-    rows = conn.execute(
-        "SELECT DISTINCT paciente_cc, COUNT(*) as n, MAX(timestamp) as ultimo FROM chat_history GROUP BY paciente_cc ORDER BY ultimo DESC"
-    ).fetchall()
-    conn.close()
+    with sqlite3.connect(db_path, timeout=30) as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT paciente_cc, COUNT(*) as n, MAX(timestamp) as ultimo FROM chat_history GROUP BY paciente_cc ORDER BY ultimo DESC"
+        ).fetchall()
     return {"ok": True, "pacientes": [{"cc": r[0], "mensajes": r[1], "ultimo": r[2]} for r in rows]}
 
 
@@ -455,10 +451,8 @@ def eliminar_historial(cc: str):
     """Elimina el historial de chat de un paciente."""
     import sqlite3
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
-    conn = sqlite3.connect(db_path)
-    conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(db_path, timeout=30) as conn:
+        conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))
     return {"ok": True, "mensaje": f"Historial de CC {cc} eliminado"}
 
 
@@ -565,10 +559,9 @@ def eliminar_paciente(cc: str):
         try: Path(pat).unlink(); eliminados.append(Path(pat).name)
         except Exception: pass
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
-    conn = sqlite3.connect(db_path)
-    conn.execute("DELETE FROM workflow_tasks WHERE paciente_cc=?", (cc,))
-    conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))
-    conn.commit(); conn.close()
+    with sqlite3.connect(db_path, timeout=30) as conn:
+        conn.execute("DELETE FROM workflow_tasks WHERE paciente_cc=?", (cc,))
+        conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))
     return {"ok": True, "eliminados": len(eliminados), "archivos": eliminados}
 
 

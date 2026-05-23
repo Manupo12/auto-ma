@@ -22,16 +22,16 @@ export async function POST(request: NextRequest) {
     backendFormData.append("audio", audio);
     backendFormData.append("paciente_cc", paciente_cc);
 
-    const hermesResponse = await fetch("http://localhost:8000/api/upload-audio", {
+    const backendResponse = await fetch("http://localhost:8000/api/upload-audio", {
       method: "POST",
       body: backendFormData,
     });
 
-    if (!hermesResponse.ok) {
-      throw new Error(`Hermes respondió ${hermesResponse.status}`);
+    if (!backendResponse.ok) {
+      throw new Error(`Hermes respondió ${backendResponse.status}`);
     }
 
-    const data = await hermesResponse.json();
+    const data = await backendResponse.json();
     return NextResponse.json(data);
   } catch (error) {
     console.error("Error en upload API:", error);

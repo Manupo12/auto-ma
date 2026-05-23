@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS workflow_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_paciente ON workflow_tasks(paciente_cc);
 CREATE INDEX IF NOT EXISTS idx_estado ON workflow_tasks(estado);
+
+CREATE TABLE IF NOT EXISTS chat_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paciente_cc TEXT NOT NULL,
+    rol TEXT NOT NULL,
+    contenido TEXT,
+    accion TEXT,
+    archivo TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_chat_cc ON chat_history(paciente_cc);
 """
 
 
@@ -44,7 +55,7 @@ class TaskDB:
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with sqlite3.connect(str(self.db_path), timeout=30.0) as conn:
             conn.executescript(SCHEMA)
 
     def _conn(self):

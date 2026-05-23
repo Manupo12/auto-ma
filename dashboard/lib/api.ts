@@ -3,7 +3,7 @@
  * Todas las llamadas al backend pasan por aquí.
  */
 
-const HERMES_API = process.env.NEXT_PUBLIC_HERMES_API || "http://localhost:8000/api";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "") + "/api";
 
 export interface Paciente {
   documento: string;
@@ -40,13 +40,13 @@ export interface ChatMessage {
 // ── Pacientes ──────────────────────────────────────────────
 
 export async function listarPacientes(): Promise<Paciente[]> {
-  const res = await fetch(`${HERMES_API}/pacientes`);
+  const res = await fetch(`${API_URL}/pacientes`);
   if (!res.ok) throw new Error("Error al listar pacientes");
   return res.json();
 }
 
 export async function buscarPaciente(cc: string): Promise<Paciente | null> {
-  const res = await fetch(`${HERMES_API}/pacientes/${cc}`);
+  const res = await fetch(`${API_URL}/pacientes/${cc}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("Error al buscar paciente");
   return res.json();
@@ -55,13 +55,13 @@ export async function buscarPaciente(cc: string): Promise<Paciente | null> {
 // ── Formatos ───────────────────────────────────────────────
 
 export async function listarFormatos(cc: string): Promise<FormatoInfo[]> {
-  const res = await fetch(`${HERMES_API}/pacientes/${cc}/formatos`);
+  const res = await fetch(`${API_URL}/pacientes/${cc}/formatos`);
   if (!res.ok) throw new Error("Error al listar formatos");
   return res.json();
 }
 
 export async function generarFormatos(cc: string, estado?: string): Promise<{ ok: boolean; mensaje: string }> {
-  const res = await fetch(`${HERMES_API}/pacientes/${cc}/generar`, {
+  const res = await fetch(`${API_URL}/pacientes/${cc}/generar`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ estado_caso: estado }),
@@ -70,7 +70,7 @@ export async function generarFormatos(cc: string, estado?: string): Promise<{ ok
 }
 
 export async function corregirFormato(cc: string, formato: string, correccion: string): Promise<{ ok: boolean }> {
-  const res = await fetch(`${HERMES_API}/pacientes/${cc}/formatos/${formato}/corregir`, {
+  const res = await fetch(`${API_URL}/pacientes/${cc}/formatos/${formato}/corregir`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mensaje: correccion }),
@@ -81,7 +81,7 @@ export async function corregirFormato(cc: string, formato: string, correccion: s
 // ── Chat ───────────────────────────────────────────────────
 
 export async function enviarMensaje(mensaje: string, cc?: string): Promise<ChatMessage> {
-  const res = await fetch(`${HERMES_API}/chat`, {
+  const res = await fetch(`${API_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mensaje, paciente_cc: cc }),
@@ -97,7 +97,7 @@ export async function subirAudio(file: File, cc: string): Promise<{ ok: boolean;
   formData.append("audio", file);
   formData.append("paciente_cc", cc);
   
-  const res = await fetch(`${HERMES_API}/upload-audio`, {
+  const res = await fetch(`${API_URL}/upload-audio`, {
     method: "POST",
     body: formData,
   });

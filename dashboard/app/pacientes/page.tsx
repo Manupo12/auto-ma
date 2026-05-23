@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Search, User, Phone, Mail, MapPin, FileText, Loader2 } from "lucide-react";
-import type { Paciente, FormatoInfo } from "@/lib/hermes";
+import type { Paciente, FormatoInfo } from "@/lib/api";
 
 export default function PacientesPage() {
   const [cc, setCc] = useState("");

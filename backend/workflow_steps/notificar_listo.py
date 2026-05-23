@@ -1,11 +1,5 @@
 """
-Paso 9: Telegram a Sandra cuando el workflow termina.
-
-Mensaje incluye:
-  - Nombre del paciente
-  - Cantidad de formatos generados
-  - Warnings (si los hay)
-  - URL del dashboard para revisar
+Paso 10: Telegram a Sandra cuando el workflow termina.
 """
 import os
 from datetime import datetime
@@ -19,27 +13,37 @@ def _log(msg: str):
 
 def notificar(task_id: str, paciente_nombre: str, paciente_cc: str,
               formatos_generados: List[dict], warnings: List[str],
-              dashboard_url: str = None) -> bool:
+              dashboard_url: str = None, resumen_verificacion: dict = None,
+              discrepancias: list = None) -> bool:
     from backend.notificador import enviar_telegram
 
-    url = dashboard_url or os.getenv("DASHBOARD_URL", "http://localhost:3000")
-    url_paciente = f"{url}/paciente/{paciente_cc}"
-
+    url = dashboard_url or os.getenv("DASHBOARD_URL", "")
     cantidad = len(formatos_generados)
     nombre = paciente_nombre or f"CC {paciente_cc}"
 
-    lines = [f"✅ Listo! Procesé los datos de {nombre}."]
+    lines = [f"Listo! Procese los datos de {nombre}."]
     if cantidad == 1:
         lines.append("1 formato generado.")
     else:
         lines.append(f"{cantidad} formatos generados.")
 
-    if warnings:
-        lines.append(f"\n⚠️ {len(warnings)} advertencia(s):")
-        for w in warnings[:3]:
-            lines.append(f"  • {w[:100]}")
+    if resumen_verificacion:
+        r = resumen_verificacion
+        lines.append(f"\nVerificacion portales: {r.get('confirmados',0)}/{r.get('total',0)} OK")
+        if r.get('discrepancias', 0) > 0:
+            lines.append(f"ATENCION: {r['discrepancias']} discrepancia(s)")
+        if r.get('faltantes', 0) > 0:
+            lines.append(f"Faltan completar {r['faltantes']} campos")
 
-    lines.append(f"\nRevisalos en: {url_paciente}")
+    if warnings:
+        lines.append(f"\n{len(warnings)} advertencia(s):")
+        for w in warnings[:3]:
+            lines.append(f"  - {w[:100]}")
+
+    if url:
+        lines.append(f"\nAbre el dashboard: {url}/paciente/{paciente_cc}")
+    else:
+        lines.append("\n(Abre el dashboard en tu computador para revisarlos)")
 
     mensaje = "\n".join(lines)
     return enviar_telegram(mensaje)
@@ -48,5 +52,6 @@ def notificar(task_id: str, paciente_nombre: str, paciente_cc: str,
 def ejecutar(task_id: str, paciente_nombre: str, paciente_cc: str,
               formatos_generados: list, warnings: list,
               resumen_verificacion: dict = None, discrepancias: list = None) -> dict:
-    ok = notificar(task_id, paciente_nombre, paciente_cc, formatos_generados, warnings)
+    ok = notificar(task_id, paciente_nombre, paciente_cc, formatos_generados, warnings,
+                   resumen_verificacion=resumen_verificacion, discrepancias=discrepancias)
     return {"ok": ok, "telegram_enviado": ok}

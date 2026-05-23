@@ -33,127 +33,30 @@ _cache_workspace = {"files": "", "ts": 0}
 def _log(msg):
     print(f"[TOMY {datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
 
+SYSTEM_PROMPT_SIMPLE = """Eres Tomy, asistente de Sandra (RILO SAS, fisioterapeuta Colombia).
+Espanol colombiano, calido y directo. Responde de forma breve y concreta.
+NUNCA inventes datos clinicos. Si no sabes algo, dilo sin rodeos.
+Los 7 formatos: Analisis de Exigencias, Carta Medidas Preventivas, Carta Recomendaciones,
+Cierre de Caso, Citacion a Empresas, Prueba de Trabajo, VOI."""
+
 SYSTEM_PROMPT = """Eres Tomy, asistente EXPERTO de Sandra (RILO SAS, fisioterapeuta ARL Positiva Colombia).
-Tu trabajo NO es solo leer documentos -- es ORGANIZAR, VERIFICAR, CRUZAR Y CORREGIR.
+Espanol colombiano, calido pero profesional. NUNCA inventes datos clinicos.
 
+Los 7 formatos: Analisis de Exigencias, Carta Medidas Preventivas, Carta Recomendaciones,
+Cierre de Caso, Citacion a Empresas, Prueba de Trabajo, VOI (Valoracion Desempeno Ocupacional).
 
- LOS 7 FORMATOS (VOI = Valoración Desempeño Ocupacional)
+Al analizar documentos clinicos:
+1. Extrae TODOS los datos y cruzalos entre formatos
+2. Marca [OK] VERIFICADO / [!] PENDIENTE PORTAL / [X] DISCREPANCIA
+3. Medifolios: verificar datos personales, siniestro (en OBSERVACIONES de Agenda Citas)
+4. ARL Positiva: siniestro oficial, CIE-10, autorizaciones
+5. Correcciones: ORIGINAL -> CORREGIDO + motivo en una linea
 
-1. Análisis de Exigencias -- perfil del cargo, demandas físicas, riesgos
-2. Carta de Medidas Preventivas -- restricciones, adaptaciones
-3. Carta de Recomendaciones -- reincorporación, seguimiento
-4. Cierre de Caso -- logros, estado final, concepto
-5. Citación a Empresas -- convocatoria, visita, análisis puesto
-6. Prueba de Trabajo -- tareas, observación, desempeño real
-7. VOI (Valoración Desempeño Ocupacional Final) -- historia ocupacional, áreas, concepto
+Cuando hay multiples formatos, incluye tabla de consistencia con campos clave.
+Campos faltantes: [!!] FALTA: [campo] -- [donde obtenerlo]
+CUANDO PIDAN FORMATOS: solo links de descarga. Nunca el contenido como texto."""
 
-
- PROTOCOLO DE VERIFICACIÓN (OBLIGATORIO)
-
-
-POR CADA DATO CLÍNICO O ADMINISTRATIVO QUE ENCUENTRES, INDICÁ:
-
-[OK] VERIFICADO -- si coincide en 2+ fuentes (ej: mismo siniestro en análisis y en VOI)
-[!] PENDIENTE PORTAL -- si necesita confirmarse en Medifolios o Positiva
-[X] DISCREPANCIA -- si hay conflicto entre formatos (ej: diagnóstico distinto en medidas vs VOI)
- DATO ORAL -- si viene solo de las notas de Sandra, sin confirmar
-
-QUÉ VERIFICAR EN MEDIFOLIOS (server0medifolios.net, user 55162801-2):
-- Datos personales del paciente (nombre completo, CC, fecha nacimiento, dirección, tel)
-- Empresa, EPS, AFP, ARL
-- Historia clínica: diagnósticos, antecedentes, alergias
-- Siniestro (del campo OBSERVACIONES en Agenda Citas -> "NO. SINIESTRO...")
-
-QUÉ VERIFICAR EN ARL POSITIVA (positivacuida.positiva.gov.co, user 1075209386MR):
-- Siniestro OFICIAL (pestaña SINIESTROS -- ID, fecha, tipo, %PCL)
-- Diagnóstico CIE-10 (pestaña REHABILITACIÓN INTEGRAL)
-- Datos del asegurado (pestaña DATOS ASEGURADO)
-- Autorizaciones, evoluciones, bitácoras
-- Matrículas RHI
-
-
- CÓMO CRUZAR DATOS ENTRE FORMATOS
-
-
-1. PRIMERO: extraé TODOS los datos de TODOS los formatos
-2. LUEGO: hacé una TABLA DE CONSISTENCIA comparando campo por campo:
-   - Nombre del paciente: ¿coincide en los 7 formatos?
-   - CC: ¿mismo número en todos?
-   - Siniestro: ¿mismo ID y fecha?
-   - Diagnóstico: ¿mismo CIE-10?
-   - Empresa: ¿mismo nombre y NIT?
-   - Fechas: ¿son coherentes? (ej: cierre después de valoración)
-3. MARCA cada discrepancia con [X] y sugerí cuál es el valor correcto
-4. Si el dato aparece en un solo formato, marcalo [!] PENDIENTE CRUCE
-
-
- CÓMO ORGANIZAR DATOS CRUDOS DE SANDRA
-
-
-Sandra escribe sus notas de manera desorganizada. Tu trabajo es EXTRAER y ESTRUCTURAR:
-
-1. Identificá fragmentos de texto que pertenezcan a cada sección del formato
-2. Agrupalos bajo encabezados claros: "DATOS PERSONALES", "DIAGNÓSTICO", "METODOLOGÍA", etc.
-3. Eliminá repeticiones y contradicciones (señalá las que encuentres)
-4. Convertí lenguaje coloquial a lenguaje clínico (pero sin perder el significado)
-5. Si falta un dato crítico, indicalo claramente:  FALTA: [campo] -- [dónde obtenerlo]
-
-
- CÓMO CORREGIR
-
-
-Cuando encuentres errores o inconsistencias:
-1. Mostrá el texto ORIGINAL (lo que dice ahora)
-2. Mostrá el texto CORREGIDO (lo que debería decir)
-3. Explicá POR QUÉ en una línea
-4. Si la corrección requiere verificación en portal, marcalo [!]
-
-Ejemplo:
-  [X] ORIGINAL: "Siniestro 503463870 -- Fecha 02/03/2025"
-  [OK] CORREGIDO: "Siniestro 503463870 -- Fecha 02/03/2026"
-   MOTIVO: El año 2025 es anterior a la fecha de atención. [!] Verificar en Positiva.
-
-
- FORMATO DE RESPUESTA (OBLIGATORIO)
-
-
-Respondé SIEMPRE con esta estructura:
-
-##  RESUMEN
-[2-3 líneas: cuántos formatos, estado general, hallazgos principales]
-
-##  TABLA DE CONSISTENCIA
-[Tabla comparando datos clave entre todos los formatos]
-| Campo | Formato 1 | Formato 2 | ... | ¿Coincide? |
-
-## [!] VERIFICACIONES PENDIENTES EN PORTALES
-- Medifolios: [lista de lo que hay que verificar]
-- Positiva: [lista de lo que hay que verificar]
-
-##  DATOS ORGANIZADOS
-[Secciones del formato principal con datos extraídos y organizados de TODOS los formatos]
-
-## [X] DISCREPANCIAS Y CORRECCIONES
-[ORIGINAL -> CORREGIDO, con motivo]
-
-##  CAMPOS FALTANTES
-[Lista de lo que falta, dónde obtenerlo, y prioridad]
-
-
-[!] REGLAS DE ORO
-
-- NUNCA inventes datos clinicos. Si no esta en los documentos, decilo.
-- NUNCA inventes nombres de pacientes, siniestros, empresas ni CIE-10.
-- NUNCA generes contenido de formatos como texto. Si hay formatos, da links.
-- SIEMPRE usa los DATOS REALES del contexto del sistema.
-- SIEMPRE cruza los datos entre formatos antes de responder.
-- SIEMPRE marca que verificar en portales.
-- SIEMPRE organiza antes de corregir.
-- Si un paciente no tiene datos, decilo claramente. No inventes.
-- CUANDO PIDAN FORMATOS: solo links de descarga. Nunca el contenido.
-- Espanol colombiano, calido pero profesional."""
-
-#  WORKSPACE 
+#  WORKSPACE
 
 def _get_active_workspace() -> Path:
     """Devuelve el workspace activo (principal o fallback)."""
@@ -206,34 +109,38 @@ def _fast_scandir(directory: Path, max_depth: int = 2, timeout: float = 3.0) -> 
 
 
 def _listar_workspace() -> str:
-    """Lista archivos del workspace para inyectar al LLM. Rápido, sin rglob."""
+    """Lista archivos del workspace para inyectar al LLM. Incluye storage/docs/."""
     global _cache_workspace
     now = time.time()
-    if now - _cache_workspace["ts"] < 300:
+    if now - _cache_workspace["ts"] < 60:
         return _cache_workspace["files"]
-    
-    ws = _get_active_workspace()
-    if not ws.exists():
-        _log(f"WORKSPACE: no existe: {ws}")
+
+    t0 = time.time()
+    all_entries = []
+
+    if FALLBACK_WORKSPACE.exists():
+        fb_entries = _fast_scandir(FALLBACK_WORKSPACE, max_depth=1, timeout=3.0)
+        all_entries.extend(fb_entries)
+
+    ws = WORKSPACE_DIR if WORKSPACE_DIR.exists() else None
+    if ws and ws != FALLBACK_WORKSPACE:
+        ws_entries = _fast_scandir(ws, max_depth=2, timeout=5.0)
+        all_entries.extend(ws_entries)
+
+    if not all_entries:
         _cache_workspace = {"files": "", "ts": now}
         return ""
-    
-    t0 = time.time()
-    entries = _fast_scandir(ws, max_depth=2, timeout=5.0)
-    elapsed = time.time() - t0
-    
-    # Formatear para el LLM
+
     lines = []
-    for path, is_dir, size_kb, mtime in entries[:40]:
-        rel = str(path.relative_to(ws))
-        if is_dir:
-            lines.append(f"   {rel}/")
-        else:
-            lines.append(f"   {rel} ({size_kb}KB, {mtime})")
-    
-    result = "\n".join(lines[:20]) if lines else "  (carpeta vacía)"
-    _log(f"WORKSPACE: {len(entries)} entradas en {elapsed:.1f}s -> {len(lines)} líneas")
-    
+    for path, is_dir, size_kb, mtime in all_entries[:50]:
+        base = FALLBACK_WORKSPACE if str(path).startswith(str(FALLBACK_WORKSPACE)) else (ws or FALLBACK_WORKSPACE)
+        try: rel = str(path.relative_to(base))
+        except ValueError: rel = path.name
+        if is_dir: lines.append(f"  {rel}/")
+        else: lines.append(f"  {rel} ({size_kb}KB, {mtime})")
+
+    result = "\n".join(lines[:30]) if lines else "  (carpeta vacia)"
+    _log(f"WORKSPACE: {len(all_entries)} entradas en {time.time()-t0:.1f}s")
     _cache_workspace = {"files": result, "ts": now}
     return result
 
@@ -310,17 +217,25 @@ def _buscar_archivo(mensaje: str) -> Optional[Path]:
 
 def _buscar_archivos_paciente(cc: str = "", nombre: str = "", mensaje: str = "") -> list:
     """
-    Busca TODOS los archivos de un paciente por CC, nombre, o detectando
-    intención de "todos los formatos" en el mensaje.
-    Retorna lista de (Path, tamaño_kb, mtime) ordenados por tipo de formato.
+    Busca TODOS los archivos de un paciente por CC, nombre.
+    Busca en workspace principal Y en storage/docs/.
     """
     ws = _get_active_workspace()
-    if not ws.exists():
+    dirs = [FALLBACK_WORKSPACE] if FALLBACK_WORKSPACE.exists() else []
+    if ws.exists() and ws not in dirs:
+        dirs.append(ws)
+
+    all_archivos = []
+    for d in dirs:
+        entries = _fast_scandir(d, max_depth=2, timeout=4.0)
+        all_archivos.extend([(p, s, m) for p, is_dir, s, m in entries if not is_dir and p.suffix.lower() == '.docx'])
+
+    if not all_archivos:
         return []
     
     entries = _fast_scandir(ws, max_depth=3, timeout=4.0)
-    archivos = [(p, s, m) for p, is_dir, s, m in entries if not is_dir and p.suffix.lower() == '.docx']
-    
+    all_archivos = sorted(set(all_archivos), key=lambda x: x[0].stem)
+    archivos = all_archivos
     if not archivos:
         return []
     
@@ -468,13 +383,14 @@ def _leer_docx(ruta: Path) -> str:
 
 
 def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_files: str = "",
-                historial=None, ctx_sistema: str = "") -> str:
+                historial=None, ctx_sistema: str = "", modo_simple: bool = False) -> str:
     """Llama al LLM. DeepSeek v4: modelo de razonamiento - necesita max_tokens alto."""
     if not API_KEY:
         _log("LLM: sin API key")
         return "No tengo conexion con mi cerebro (falta API key). Revisa el archivo .env"
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    prompt = SYSTEM_PROMPT_SIMPLE if modo_simple else SYSTEM_PROMPT
+    messages = [{"role": "system", "content": prompt}]
 
     # Historial (ultimos 6 turnos)
     if historial:
@@ -524,7 +440,7 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
                     "User-Agent": "Mozilla/5.0",
                 },
                 json={
-                    "model": MODEL,
+                     "model": os.getenv("LLM_MODEL_EXTRACCION", "deepseek-v4-flash"),
                     "messages": messages,
                     "temperature": 0.7,
                     "max_tokens": max_tok,
@@ -707,7 +623,7 @@ Si un dato no aparece, escribe FALTA."""
                 f"{BASE_URL}/chat/completions",
                 headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"},
                 json={
-                    "model": MODEL,
+                     "model": os.getenv("LLM_MODEL_EXTRACCION", "deepseek-v4-flash"),
                     "messages": [
                         {"role": "system", "content": EXTRACT_PROMPT},
                         {"role": "user", "content": contenido_lote}
@@ -1049,8 +965,9 @@ def procesar_mensaje(mensaje: str, paciente_cc: str = "", historial: list = None
 
     # 7. Llamar LLM
     ctx_sistema = _construir_contexto_sistema()
+    modo_simple = not doc_content and not cc
     respuesta = _llamar_llm(mensaje_con_sugerencia, cc, doc_content, workspace_files,
-                            historial=historial, ctx_sistema=ctx_sistema)
+                            historial=historial, ctx_sistema=ctx_sistema, modo_simple=modo_simple)
     
     total_time = time.time() - t_total
     _log(f" Listo en {total_time:.1f}s ")

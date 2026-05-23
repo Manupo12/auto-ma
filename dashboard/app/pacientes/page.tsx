@@ -40,7 +40,7 @@ export default function PacientesPage() {
         setFormatos(fmtData);
       }
     } catch {
-      setError("No se pudo conectar con el servidor en localhost:8000.");
+      setError("No se pudo conectar con el servidor en el servidor.");
     } finally {
       setBuscando(false);
     }

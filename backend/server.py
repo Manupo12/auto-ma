@@ -808,9 +808,28 @@ def diagnosticar_workspace():
 
 @app.on_event("startup")
 async def iniciar_cron():
-    """Inicia el scheduler de pre-extracción si está habilitado."""
+    """Inicia el scheduler y recupera tasks perdidas."""
     from backend.cron_pre_extraccion import iniciar_scheduler
     iniciar_scheduler()
+
+    try:
+        from backend.task_db import TaskDB
+        db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+        db = TaskDB(db_path)
+        activas = db.listar_activos()
+        for t in activas:
+            iniciado = t.get("iniciado_en", "")
+            if iniciado:
+                try:
+                    from datetime import timezone
+                    dt = datetime.fromisoformat(iniciado)
+                    if (datetime.now() - dt).total_seconds() > 7200:
+                        db.marcar_error(t["task_id"], t.get("paso_actual", 0), "Task perdida al reiniciar servidor")
+                        print(f"[STARTUP] Task {t['task_id']} marcada como error (perdida)")
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[STARTUP] Error recuperando tasks: {e}")
 
 
 @app.get("/api/verificar/{cc}")
@@ -1015,7 +1034,7 @@ async def procesar_paciente(
             ejecutar_workflow(audio_path=str(audio_path), paciente_cc=paciente_cc, task_id_existente=task_id)
         except Exception as e:
             print(f"[WORKFLOW BG] error: {e}", file=__import__("sys").stderr)
-    threading.Thread(target=_runner, daemon=True).start()
+    threading.Thread(target=_runner,         daemon=False).start()
 
     return {
         "ok": True,

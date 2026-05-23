@@ -33,7 +33,7 @@ export function FormatoCard({ nombre, archivoDocx, archivoPdf, qaOk, qaWarnings,
         </div>
         <div className="flex gap-2">
           {archivoDocx && (
-            <a href={`http://localhost:8000/api/download/${encodeURIComponent(archivoDocx.split("/").pop() || "")}`} download
+            <a href={`/api/download/${encodeURIComponent(archivoDocx.split("/").pop() || "")}`} download
                className="p-3 bg-slate-100 hover:bg-slate-200 rounded-lg" title="Descargar DOCX">
               <Download size={20} />
             </a>

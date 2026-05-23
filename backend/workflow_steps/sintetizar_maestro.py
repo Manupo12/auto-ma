@@ -156,7 +156,7 @@ def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, fo
              "--contexto-file", contexto_file,
              "--cc", paciente_cc],
             capture_output=True, text=True,
-            timeout=600,
+            timeout=900,
             cwd=str(Path(__file__).parent.parent.parent),
         )
     finally:

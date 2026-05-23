@@ -83,23 +83,37 @@ def _leer_docx(ruta: Path) -> str:
 def _llamar_llm(messages: list, modelo: str, max_tokens: int) -> dict:
     """Llamada HTTP al LLM. Devuelve dict con content, reasoning, tokens, finish."""
     t0 = time.time()
-    resp = requests.post(
-        f"{BASE_URL}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0",
-        },
-        json={
-            "model": modelo,
-            "messages": messages,
-            "temperature": 0.3 if "flash" in modelo else 0.7,
-            "max_tokens": max_tokens,
-        },
-        timeout=180,
-    )
+    last_error = None
+    for intento in range(3):
+        try:
+            resp = requests.post(
+                f"{BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {API_KEY}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0",
+                },
+                json={
+                    "model": modelo,
+                    "messages": messages,
+                    "temperature": 0.3 if "flash" in modelo else 0.7,
+                    "max_tokens": max_tokens,
+                },
+                timeout=(30, 300),  # (connect, read) timeouts
+            )
+            resp.raise_for_status()
+            break
+        except Exception as e:
+            last_error = e
+            if intento < 2:
+                wait = (intento + 1) * 10
+                print(f"[LOTE] Reintento {intento+2}/3 en {wait}s: {e}", file=sys.stderr)
+                time.sleep(wait)
+    else:
+        print(json.dumps({"ok": False, "error": f"HTTP error after 3 retries: {last_error}"}))
+        sys.exit(1)
+
     elapsed = time.time() - t0
-    resp.raise_for_status()
     body = resp.json()
     choice = body.get("choices", [{}])[0]
     msg = choice.get("message", {})

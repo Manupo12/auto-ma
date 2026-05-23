@@ -541,25 +541,22 @@ def eliminar_formatos(cc: str):
 @app.delete("/api/pacientes/{cc}")
 def eliminar_paciente(cc: str):
     """Elimina paciente del sistema: JSON, formatos, PDFs, audios, historial chat."""
-    import sqlite3
+    import sqlite3, glob as _glob
     eliminados = []
     for d in [DOCS_DIR, PDFS_DIR, AUDIO_DIR, WORKFLOW_AUDIOS_DIR]:
         for f in d.glob(f"*{cc}*"):
-            try:
-                f.unlink()
-                eliminados.append(str(f.name))
-            except Exception:
-                pass
-    data_file = DATA_DIR / f"{cc}-completo.json"
-    if data_file.exists():
-        data_file.unlink()
-        eliminados.append(str(data_file.name))
+            try: f.unlink(); eliminados.append(str(f.name))
+            except Exception: pass
+    for pat in [str(DATA_DIR / f"{cc}-completo.json"), str(DATA_DIR / f"{cc}.json")] + \
+              _glob.glob(str(DATA_DIR / f"*{cc}*-completo.json")) + \
+              _glob.glob(str(DATA_DIR / f"*{cc}*.json")):
+        try: Path(pat).unlink(); eliminados.append(Path(pat).name)
+        except Exception: pass
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
     conn = sqlite3.connect(db_path)
     conn.execute("DELETE FROM workflow_tasks WHERE paciente_cc=?", (cc,))
     conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
     return {"ok": True, "eliminados": len(eliminados), "archivos": eliminados}
 
 

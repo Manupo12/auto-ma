@@ -52,50 +52,47 @@ def _get_valor_sintesis(datos: dict, rutas: list) -> str:
 
 
 def _extraer_de_portales(cc: str) -> dict:
-    """Extrae datos de portales. Usa cache si fresco, sino Playwright. Si falla, retorna datos minimos."""
+    """Siempre intenta Playwright primero. Cache solo como fallback."""
     from pathlib import Path
     from datetime import timedelta
     import json as _json
 
     cache_path = Path(os.getenv("STORAGE_DIR", "./storage")) / "data" / f"{cc}-completo.json"
 
-    # 1. Intentar cache fresco
-    if cache_path.exists():
-        try:
-            cached = _json.loads(cache_path.read_text(encoding="utf-8"))
-            extraido = cached.get("_meta", {}).get("extraido_en", "")
-            if extraido:
-                dt = datetime.fromisoformat(extraido)
-                if datetime.now() - dt < timedelta(hours=24):
-                    medi = cached.get("medifolios", {})
-                    pos = cached.get("positiva", {})
-                    if medi.get("nombre1") or pos.get("siniestro_id") or (pos.get("siniestros") and pos["siniestros"][0].get("id")):
-                        _log("Usando cache fresco (<24h)")
-                        return cached
-        except Exception:
-            pass
-
-    # 2. Intentar extraccion via Playwright
+    # 1. SIEMPRE intentar Playwright primero para datos frescos
     try:
         _log("Extrayendo portales con Playwright...")
         from backend.playwright_real.orquestador import extraer_paciente_completo
         resultado = asyncio.run(extraer_paciente_completo(cc, guardar=True))
-        if not resultado.get("_meta", {}).get("parcial"):
-            _log("Extraccion Playwright exitosa")
+        parcial = resultado.get("_meta", {}).get("parcial", True)
+        _log(f"Playwright: {'parcial' if parcial else 'completo'}")
+        if not parcial:
             return resultado
+        # Si es parcial, intentamos usar cache para complementar
+        if cache_path.exists():
+            try:
+                cached = _json.loads(cache_path.read_text(encoding="utf-8"))
+                # Merge: datos de Playwright + lo que falte del cache
+                for key in ("medifolios", "positiva"):
+                    if not resultado.get(key):
+                        resultado[key] = cached.get(key, {})
+                return resultado
+            except Exception:
+                pass
+        return resultado
     except Exception as e:
         _log(f"Playwright fallo: {e}")
 
-    # 3. Fallback: usar datos del cache aunque este viejo
+    # 2. Fallback: cache si existe
     if cache_path.exists():
         try:
             cached = _json.loads(cache_path.read_text(encoding="utf-8"))
-            _log("Usando cache viejo como fallback")
+            _log("Usando cache como fallback")
             return cached
         except Exception:
             pass
 
-    # 4. Sin datos: retornar estructura vacia pero valida
+    # 3. Sin datos
     _log("Sin datos de portales disponibles")
     return {
         "_meta": {"parcial": True, "error": "Portales no disponibles", "extraido_en": datetime.now().isoformat()},

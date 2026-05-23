@@ -1,0 +1,30 @@
+{
+  "cc": "36280228",
+  "medifolios": {
+    "cc_buscado": "36280228",
+    "fuente": "medifolios",
+    "error_form": "TimeoutError: ElementHandle.click: Timeout 30000ms exceeded.\nCall log:\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n      - waiting 100ms\n    56 × waiting for element to be visible, enabled and stable\n       - element is not visible\n     - retrying click action\n       - waiting 500ms\n",
+    "siniestro_medi": "[VERIFICAR]"
+  },
+  "positiva": {
+    "cc_buscado": "36280228",
+    "fuente": "positiva",
+    "nombre_detectado": "MARIA GREIDY RODRIGUEZ",
+    "texto_completo_len": 9148,
+    "rhi": {
+      "fechas_encontradas": [
+        "23/05/2026"
+      ]
+    },
+    "siniestro_id": "000102030405"
+  },
+  "_meta": {
+    "extraido_en": "2026-05-23T02:28:29.250265",
+    "fuentes": [
+      "medifolios",
+      "positiva"
+    ],
+    "discrepancias": [],
+    "parcial": false
+  }
+}

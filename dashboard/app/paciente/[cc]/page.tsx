@@ -2,123 +2,183 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { EstadoVisual } from "@/components/EstadoVisual";
-import { TimelinePaciente } from "@/components/TimelinePaciente";
-import { FormatoCard } from "@/components/FormatoCard";
+import { Loader2, AlertCircle, Clock, CheckCircle, FileText } from "lucide-react";
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+const PASOS_LABELS: Record<number, string> = {
+  1: "Transcribiendo audio...",
+  2: "Buscando datos del paciente...",
+  3: "Leyendo notas clinicas...",
+  4: "Leyendo formatos de referencia...",
+  5: "Sintetizando con IA...",
+  6: "Verificando en portales...",
+  7: "Generando formatos...",
+  8: "Verificando calidad...",
+  9: "Convirtiendo a PDF...",
+  10: "Notificando...",
+};
+
+interface TaskActiva {
+  task_id: string;
+  estado: string;
+  paso_actual: number;
+  error?: string;
+  resultado?: any;
+}
 
 export default function PacientePage() {
-  const { cc } = useParams<{cc: string}>();
+  const { cc } = useParams<{ cc: string }>();
   const [paciente, setPaciente] = useState<any>(null);
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [taskActiva, setTaskActiva] = useState<any>(null);
-  const [correccion, setCorreccion] = useState("");
-  const [enviandoCorreccion, setEnviandoCorreccion] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [taskActiva, setTaskActiva] = useState<TaskActiva | null>(null);
+  const [formatos, setFormatos] = useState<any[]>([]);
 
   useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+
     const cargar = async () => {
-      const [rP, rT] = await Promise.all([
-        fetch(`http://localhost:8000/api/pacientes/${cc}`),
-        fetch(`http://localhost:8000/api/tasks/paciente/${cc}`),
-      ]);
-      if (rP.ok) setPaciente(await rP.json());
-      if (rT.ok) {
-        const data = await rT.json();
-        setTasks(data.tasks || []);
-        const activa = (data.tasks || []).find((t: any) =>
-          !["listo", "cancelado"].includes(t.estado) && !t.estado.startsWith("error_")
-        );
-        setTaskActiva(activa);
+      try {
+        const [rP, rT, rF] = await Promise.all([
+          fetch(`${API}/api/pacientes/${cc}`),
+          fetch(`${API}/api/tasks/paciente/${cc}`),
+          fetch(`${API}/api/pacientes/${cc}/formatos`),
+        ]);
+
+        if (rP.ok) setPaciente(await rP.json());
+        else if (rP.status === 404) setError("");
+        else setError("Error al cargar datos del paciente");
+
+        if (rT.ok) {
+          const data = await rT.json();
+          const tasks = data.tasks || [];
+          const activa = tasks.find((t: any) =>
+            !["listo", "cancelado"].includes(t.estado) && !t.estado?.startsWith("error_")
+          );
+          setTaskActiva(activa || null);
+        }
+
+        if (rF.ok) setFormatos(await rF.json());
+      } catch {
+        setError("No se pudo conectar con el backend");
+      } finally {
+        setLoading(false);
       }
     };
+
     cargar();
-    const interval = setInterval(cargar, 3000);
+    interval = setInterval(cargar, 5000);
     return () => clearInterval(interval);
   }, [cc]);
 
-  const enviarCorreccion = async () => {
-    if (!correccion.trim()) return;
-    setEnviandoCorreccion(true);
-    try {
-      const resp = await fetch(`http://localhost:8000/api/corregir-paciente/${cc}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mensaje: correccion }),
-      });
-      const data = await resp.json();
-      if (data.ok) {
-        alert(`✅ Corregí "${data.campo_corregido}". Se regeneraron ${data.formatos_regenerados?.length || 0} formatos.`);
-        setCorreccion("");
-      } else {
-        alert(`No entendí. ${data.mensaje || ""}`);
-      }
-    } finally {
-      setEnviandoCorreccion(false);
-    }
-  };
-
-  if (!paciente) return <div className="p-8 text-xl">Cargando paciente...</div>;
-
-  const ultimaTask = tasks[0];
-  const formatos = ultimaTask?.resultado?.formatos_generados || [];
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={40} className="animate-spin text-blue-500" />
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-8">
-      <header className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 rounded-2xl">
-        <h1 className="text-3xl font-bold">{paciente.nombre || `CC ${cc}`}</h1>
-        <p className="text-blue-100 text-lg mt-1">CC {cc} · {paciente.edad || "?"} años</p>
-        {paciente.empresa && <p className="text-blue-100">Empresa: {paciente.empresa}</p>}
-      </header>
+    <div className="space-y-6 max-w-4xl mx-auto p-6 animate-fadeIn">
+      {/* Cabecera */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">
+            {paciente?.nombre || `Paciente CC ${cc}`}
+          </h1>
+          <p className="text-slate-500 mt-1">
+            CC {cc}
+            {paciente?.empresa ? ` · ${paciente.empresa}` : ""}
+            {paciente?.siniestro ? ` · Siniestro ${paciente.siniestro}` : ""}
+          </p>
+        </div>
+      </div>
 
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm flex items-center gap-2">
+          <AlertCircle size={16} /> {error}
+        </div>
+      )}
+
+      {/* Tarea en progreso */}
       {taskActiva && (
-        <section className="bg-blue-50 border-2 border-blue-200 p-6 rounded-2xl">
-          <h2 className="text-2xl font-semibold mb-4">⏳ Tomy está trabajando…</h2>
-          <TimelinePaciente pasoActual={taskActiva.paso_actual} estado={taskActiva.estado} />
-        </section>
-      )}
-
-      {formatos.length > 0 && (
-        <section>
-          <h2 className="text-2xl font-semibold mb-4">Documentos generados</h2>
-          <div className="space-y-4">
-            {formatos.map((f: any, i: number) => (
-              <FormatoCard
-                key={i}
-                nombre={f.formato}
-                archivoDocx={f.archivo}
-                qaOk={f.qa_ok}
-                qaWarnings={f.qa_warnings}
-                onCorregir={() => {
-                  const el = document.getElementById("correccion-input");
-                  el?.scrollIntoView({ behavior: "smooth" });
-                  el?.focus();
-                }}
-              />
-            ))}
+        <div className="bg-blue-50 border-2 border-blue-200 p-6 rounded-2xl">
+          <div className="flex items-center gap-3 mb-4">
+            <Clock size={24} className="text-blue-600 animate-pulse" />
+            <div>
+              <h2 className="text-xl font-bold text-slate-800">Procesando...</h2>
+              <p className="text-blue-700">{PASOS_LABELS[taskActiva.paso_actual] || taskActiva.estado}</p>
+            </div>
+            <span className="ml-auto text-lg font-bold text-blue-600">Paso {taskActiva.paso_actual}/10</span>
           </div>
-        </section>
+          <div className="w-full bg-blue-200 rounded-full h-3">
+            <div
+              className="bg-blue-600 h-3 rounded-full transition-all duration-1000"
+              style={{ width: `${Math.round((taskActiva.paso_actual / 10) * 100)}%` }}
+            />
+          </div>
+        </div>
       )}
 
-      <section>
-        <h2 className="text-2xl font-semibold mb-4">Corregir algo</h2>
-        <p className="text-base text-slate-600 mb-2">
-          Decime qué corregir, por ejemplo: &quot;el siniestro es 503476658&quot; o &quot;la empresa se llama Acme S.A.S.&quot;
-        </p>
-        <textarea
-          id="correccion-input"
-          value={correccion}
-          onChange={(e) => setCorreccion(e.target.value)}
-          className="w-full p-4 border-2 border-slate-300 rounded-xl text-lg"
-          rows={3}
-          placeholder="Escribe la corrección aquí…"
-        />
-        <button
-          onClick={enviarCorreccion}
-          disabled={enviandoCorreccion || !correccion.trim()}
-          className="mt-3 px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-lg font-semibold disabled:opacity-50"
-        >
-          {enviandoCorreccion ? "Aplicando..." : "Aplicar corrección"}
-        </button>
-      </section>
+      {/* Sin datos */}
+      {!paciente && !taskActiva && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center">
+          <FileText size={48} className="text-slate-300 mx-auto mb-4" />
+          <p className="text-lg text-slate-600">No hay datos para CC {cc}</p>
+          <p className="text-slate-400 mt-2">
+            {taskActiva
+              ? "El paciente esta siendo procesado. Los datos estaran disponibles pronto."
+              : "Procesa un audio desde el chat para generar los datos y formatos."}
+          </p>
+        </div>
+      )}
+
+      {/* Datos del paciente */}
+      {paciente && (
+        <div className="bg-white border border-slate-200 rounded-xl p-6">
+          <h2 className="text-lg font-bold text-slate-700 mb-4">Datos del paciente</h2>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            {paciente.nombre && <div><span className="text-slate-400">Nombre:</span> <span className="font-medium">{paciente.nombre}</span></div>}
+            {paciente.documento && <div><span className="text-slate-400">CC:</span> <span className="font-medium">{paciente.documento}</span></div>}
+            {paciente.telefono && <div><span className="text-slate-400">Telefono:</span> <span className="font-medium">{paciente.telefono}</span></div>}
+            {paciente.direccion && <div><span className="text-slate-400">Direccion:</span> <span className="font-medium">{paciente.direccion}</span></div>}
+            {paciente.empresa && <div><span className="text-slate-400">Empresa:</span> <span className="font-medium">{paciente.empresa}</span></div>}
+            {paciente.siniestro && <div><span className="text-slate-400">Siniestro:</span> <span className="font-medium">{paciente.siniestro}</span></div>}
+            {paciente.estado_caso && <div><span className="text-slate-400">Estado:</span> <span className="font-medium">{paciente.estado_caso}</span></div>}
+          </div>
+        </div>
+      )}
+
+      {/* Formatos */}
+      {formatos.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl p-6">
+          <h2 className="text-lg font-bold text-slate-700 mb-4">Formatos generados ({formatos.length})</h2>
+          <div className="space-y-2">
+            {formatos.map((f: any, i: number) => {
+              const nombreArchivo = f.archivo_docx ? f.archivo_docx.split("/").pop() : null;
+              return (
+                <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                  <div>
+                    <p className="font-medium text-slate-700">{f.nombre}</p>
+                    <p className="text-xs text-slate-400">{f.fecha_generacion} · {f.estado}</p>
+                  </div>
+                  {nombreArchivo && (
+                    <a
+                      href={`${API}/api/download/${encodeURIComponent(nombreArchivo)}`}
+                      download
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                    >
+                      Descargar
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

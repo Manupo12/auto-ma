@@ -43,7 +43,13 @@ def limpiar_backups_viejos(retener: int = 14):
         _log(f"borrado: {viejo.name}")
 
 
-async def ejecutar_backup():
+async def _notificar_fallo(error: str):
+    try:
+        from backend.notificador import enviar_telegram
+        enviar_telegram(f"Backup RILO fallo: {error}")
+    except: pass
+
+def ejecutar_backup():
     try:
         archivo = crear_backup()
         limpiar_backups_viejos()

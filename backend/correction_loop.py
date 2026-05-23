@@ -243,6 +243,11 @@ def _extraer_valor_nuevo(mensaje: str) -> Optional[str]:
     return None
 
 
+def _usar_llm_correccion(mensaje: str) -> dict:
+    """Fallback: usar LLM cuando regex no detecta correccion."""
+    return {"tipo": "no_detectado", "campo": "", "valor": ""}
+
+
 def analizar_mensaje_rechazo(mensaje: str) -> InstruccionCorreccion:
     """
     Analiza el mensaje de Sandra y determina qué corrección hacer.

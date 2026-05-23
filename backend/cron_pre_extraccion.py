@@ -133,6 +133,11 @@ async def recordatorio_matinal():
         _log(f"MATINAL: error {e}")
 
 
+def _guardar_ultimo_run():
+    import json, os
+    p = os.path.join(os.getenv("STORAGE_DIR","./storage"), "last_cron_run.json")
+    with open(p, "w") as f: json.dump({"fecha": str(__import__("datetime").datetime.now())}, f)
+
 def iniciar_scheduler():
     """Configura y arranca los jobs. Llámame desde server.py startup."""
     if not CRON_ENABLED:

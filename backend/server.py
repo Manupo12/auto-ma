@@ -512,6 +512,57 @@ def listar_formatos(cc: str):
     return _listar_formatos_cc(cc)
 
 
+@app.delete("/api/pacientes/{cc}/formatos")
+def eliminar_formatos(cc: str):
+    """Elimina todos los formatos DOCX y PDFs de un paciente."""
+    eliminados = []
+    for d in [DOCS_DIR, PDFS_DIR, AUDIO_DIR]:
+        for f in d.glob(f"*{cc}*"):
+            try:
+                f.unlink()
+                eliminados.append(str(f.name))
+            except Exception:
+                pass
+    # Limpiar JSON
+    data_file = DATA_DIR / f"{cc}-completo.json"
+    if data_file.exists():
+        data_file.unlink()
+        eliminados.append(str(data_file.name))
+    # Limpiar audios
+    for f in WORKFLOW_AUDIOS_DIR.glob(f"*{cc}*"):
+        try:
+            f.unlink()
+            eliminados.append(str(f.name))
+        except Exception:
+            pass
+    return {"ok": True, "eliminados": len(eliminados), "archivos": eliminados}
+
+
+@app.delete("/api/pacientes/{cc}")
+def eliminar_paciente(cc: str):
+    """Elimina paciente del sistema: JSON, formatos, PDFs, audios, historial chat."""
+    import sqlite3
+    eliminados = []
+    for d in [DOCS_DIR, PDFS_DIR, AUDIO_DIR, WORKFLOW_AUDIOS_DIR]:
+        for f in d.glob(f"*{cc}*"):
+            try:
+                f.unlink()
+                eliminados.append(str(f.name))
+            except Exception:
+                pass
+    data_file = DATA_DIR / f"{cc}-completo.json"
+    if data_file.exists():
+        data_file.unlink()
+        eliminados.append(str(data_file.name))
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute("DELETE FROM workflow_tasks WHERE paciente_cc=?", (cc,))
+    conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "eliminados": len(eliminados), "archivos": eliminados}
+
+
 @app.post("/api/pacientes/{cc}/generar")
 def generar_formatos(cc: str, req: GenerarRequest):
     try:

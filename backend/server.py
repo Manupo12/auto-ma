@@ -570,8 +570,17 @@ def eliminar_formatos(cc: str):
 
 @app.delete("/api/pacientes/{cc}")
 def eliminar_paciente(cc: str):
-    """Elimina paciente del sistema: JSON, formatos, PDFs, audios, historial chat."""
+    """Elimina paciente: cancela tareas activas primero, luego borra archivos."""
     import sqlite3, glob as _glob
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+
+    # Cancelar tareas activas antes de borrar (evita que el workflow recree archivos)
+    with sqlite3.connect(db_path, timeout=30) as conn:
+        conn.execute(
+            "UPDATE workflow_tasks SET estado='cancelado', terminado_en=datetime('now','localtime') WHERE paciente_cc=? AND estado NOT IN ('listo','cancelado')",
+            (cc,)
+        )
+
     eliminados = []
     for d in [DOCS_DIR, PDFS_DIR, AUDIO_DIR, WORKFLOW_AUDIOS_DIR]:
         for f in d.glob(f"*{cc}*"):
@@ -582,7 +591,6 @@ def eliminar_paciente(cc: str):
               _glob.glob(str(DATA_DIR / f"*{cc}*.json")):
         try: Path(pat).unlink(); eliminados.append(Path(pat).name)
         except Exception: pass
-    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
     with sqlite3.connect(db_path, timeout=30) as conn:
         conn.execute("DELETE FROM workflow_tasks WHERE paciente_cc=?", (cc,))
         conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))

@@ -207,7 +207,7 @@ def _buscar_archivo(mensaje: str) -> Optional[Path]:
                         _log(f"BUSCAR: {tipo} con nombre -> {p.name}")
                         return p
                 # Fallback: más reciente
-                best = max(cand, key=lambda x: x[1])  # por mtime string (dd/mm/yyyy)
+                best = max(cand, key=lambda x: datetime.strptime(x[2], "%d/%m/%Y") if x[2] and x[2] != "?" else datetime.min)
                 _log(f"BUSCAR: {tipo} más reciente -> {best[0].name}")
                 return best[0]
     
@@ -430,6 +430,7 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
     max_tokens_values = [16000, 24000]  # intento 1: 16000, intento 2: 24000 (reducido para lotes)
     
     for intento in range(2):
+        resp = None
         try:
             max_tok = max_tokens_values[intento]
             resp = requests.post(
@@ -499,8 +500,10 @@ def _llamar_llm(mensaje: str, cc: str = "", archivo_doc: str = "", workspace_fil
                     _log(f"LLM: sin choices: {json.dumps(body)[:200]}")
                     return " El servicio de IA no devolvió respuesta. Intentá de nuevo."
             else:
-                _log(f"LLM: HTTP {resp.status_code}: {resp.text[:200]}")
-                return f" Error del servicio IA (HTTP {resp.status_code})."
+                if resp is not None:
+                    _log(f"LLM: HTTP {resp.status_code}: {resp.text[:200]}")
+                    return f" Error del servicio IA (HTTP {resp.status_code})."
+                return " Error del servicio IA (sin respuesta)."
         
         except requests.exceptions.Timeout:
             _log(f"LLM: timeout tras {time.time()-t0:.1f}s")

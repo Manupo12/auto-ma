@@ -24,6 +24,13 @@ from backend.playwright_real import selectores as S
 SESSIONS_DIR = Path(os.getenv("PLAYWRIGHT_SESSIONS_DIR", "./storage/playwright_sessions"))
 DEBUG = os.getenv("PLAYWRIGHT_DEBUG", "false").lower() == "true"
 TIMEOUT_MS = int(os.getenv("PLAYWRIGHT_TIMEOUT_MS", "60000"))
+if TIMEOUT_MS < 60000:
+    TIMEOUT_MS = 60000
+
+PORTAL_TIMEOUTS = {
+    "medifolios": max(TIMEOUT_MS, 60000),
+    "positiva": max(TIMEOUT_MS, 90000),
+}
 
 
 def _log(msg: str):
@@ -165,11 +172,28 @@ async def abrir_contexto(portal: str) -> Tuple[Browser, BrowserContext, Page]:
 
         if not await _verificar_sesion(page, portal):
             _log(f"{portal.upper()}: sesion expirada o inexistente — re-login")
-            if portal == "medifolios":
-                await _login_medifolios(page)
-            else:
-                await _login_positiva(page)
-            await ctx.storage_state(path=str(state_path))
+
+            bak_path = Path(str(state_path) + ".bak")
+            if state_path.exists():
+                if bak_path.exists():
+                    bak_path.unlink()
+                state_path.rename(bak_path)
+
+            try:
+                if portal == "medifolios":
+                    await _login_medifolios(page)
+                else:
+                    await _login_positiva(page)
+                await ctx.storage_state(path=str(state_path))
+                if bak_path.exists():
+                    bak_path.unlink()
+            except Exception:
+                _log(f"{portal.upper()}: login fallo, restaurando backup")
+                if bak_path.exists():
+                    if state_path.exists():
+                        state_path.unlink()
+                    bak_path.rename(state_path)
+                raise
 
         try:
             yield browser, ctx, page

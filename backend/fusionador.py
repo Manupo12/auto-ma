@@ -98,8 +98,9 @@ def fusionar_todo(
     if not paciente.get("nombre"):
         partes = []
         for k in ["nombre1", "nombre2", "apellido1", "apellido2"]:
-            if paciente.get(k):
-                partes.append(paciente.pop(k))
+            v = paciente.get(k)
+            if v and str(v).strip():
+                partes.append(str(v).strip())
         if partes:
             paciente["nombre"] = " ".join(partes)
     
@@ -159,14 +160,20 @@ def fusionar_todo(
     siniestro.update(med.get("siniestro", {}))
     siniestro.update(pos.get("siniestro", {}))
     
-    # Si hay múltiples siniestros en Positiva, el principal es el primero AT
-    todos = siniestro.pop("todos", [])
+    # Si hay multiples siniestros en Positiva, el principal es el primero AT.
+    # Guardar el resto en historial para referencia.
+    todos = siniestro.get("todos", []) or []
     if todos:
+        siniestro["historial"] = list(todos)  # guardar copia completa
         for s in todos:
             if s.get("tipo_evento") == "AT" and not siniestro.get("id_siniestro"):
                 siniestro["id_siniestro"] = s.get("id_siniestro", "")
                 siniestro["fecha_evento"] = s.get("fecha_evento", "")
                 siniestro["tipo"] = "AT"
+        # Si no se encontro AT, usar el primero disponible
+        if not siniestro.get("id_siniestro") and todos:
+            siniestro["id_siniestro"] = todos[0].get("id_siniestro", "")
+            siniestro["fecha_evento"] = todos[0].get("fecha_evento", "")
     
     siniestro.setdefault("id_siniestro", "")
     siniestro.setdefault("fecha_evento", "")

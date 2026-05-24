@@ -12,7 +12,14 @@ services:
       - ./backend/database.db:/app/database.db
     environment:
       - DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENCODE_GO_API_KEY=${OPENCODE_GO_API_KEY}
+      - OPENCODE_GO_BASE_URL=${OPENCODE_GO_BASE_URL}
+      - TOMY_COMPLETO_ENABLED=${TOMY_COMPLETO_ENABLED}
+      - WORKFLOW_DB_PATH=${WORKFLOW_DB_PATH}
+      - AUTH_PIN=${AUTH_PIN}
+      - AUTH_SECRET=${AUTH_SECRET}
+      - WORKSPACE_DIR=${WORKSPACE_DIR}
+      - CORS_ORIGINS=${CORS_ORIGINS}
     restart: unless-stopped
 
   frontend:
@@ -32,9 +39,9 @@ services:
       - ./storage/browser-logs:/logs
     environment:
       - MEDIFOLIOS_USER=${MEDIFOLIOS_USER}
-      - MEDIFOLIOS_PASS=${MEDIFOLIOS_PASS}
+      - MEDIFOLIOS_PASSWORD=${MEDIFOLIOS_PASSWORD}
       - POSITIVA_USER=${POSITIVA_USER}
-      - POSITIVA_PASS=${POSITIVA_PASS}
+      - POSITIVA_PASSWORD=${POSITIVA_PASSWORD}
     profiles:
       - fase2
     restart: unless-stopped

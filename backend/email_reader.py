@@ -16,6 +16,7 @@ import imaplib
 import email
 import re
 import os
+import unicodedata
 from datetime import datetime, timedelta, date
 from email.header import decode_header
 from typing import List, Dict, Optional
@@ -49,7 +50,14 @@ RE_FECHA_ASUNTO = re.compile(
 RE_LINEA_CITA = re.compile(
     r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s+'   # Fecha Hora
     r'(.+?)\s+'                                   # Nombre paciente
-    r'(\d{7,10})\s+'                              # Teléfono
+    r'(\d{7,10})\s+'                              # Telefono
+    r'(.+)',                                       # Servicio
+    re.IGNORECASE
+)
+
+RE_LINEA_CITA_SIN_TELEFONO = re.compile(
+    r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\s+'   # Fecha Hora
+    r'(.+?)\s{2,}'                                # Nombre paciente (requiere doble espacio)
     r'(.+)',                                       # Servicio
     re.IGNORECASE
 )
@@ -184,7 +192,11 @@ def extraer_citas_de_correo(msg) -> AgendaDia:
     match_fecha = RE_FECHA_ASUNTO.search(asunto)
     if match_fecha:
         dia, mes_nombre, anio = match_fecha.groups()
-        mes_num = MESES.get(mes_nombre.lower(), "01")
+        mes_normalizado = "".join(
+            c for c in unicodedata.normalize("NFD", mes_nombre.lower())
+            if unicodedata.category(c) != "Mn"
+        )
+        mes_num = MESES.get(mes_normalizado, "01")
         agenda.fecha = f"{anio}-{mes_num.zfill(2)}-{dia.zfill(2)}"
     
     # Extraer citas línea por línea
@@ -194,17 +206,23 @@ def extraer_citas_de_correo(msg) -> AgendaDia:
         match = RE_LINEA_CITA.search(linea)
         if match:
             fecha_hora, paciente, telefono, servicio = match.groups()
-            fecha_str = fecha_hora[:10]  # "2026-05-16"
-            hora_str = fecha_hora[11:16]  # "08:10"
-            
-            cita = Cita(
-                paciente=paciente.strip(),
-                telefono=telefono.strip(),
-                hora=hora_str,
-                servicio=servicio.strip(),
-                fecha=fecha_str,
-            )
-            agenda.citas.append(cita)
+        else:
+            match = RE_LINEA_CITA_SIN_TELEFONO.search(linea)
+            if not match:
+                continue
+            fecha_hora, paciente, servicio = match.groups()
+            telefono = ""
+        fecha_str = fecha_hora[:10]  # "2026-05-16"
+        hora_str = fecha_hora[11:16]  # "08:10"
+        
+        cita = Cita(
+            paciente=paciente.strip(),
+            telefono=(telefono or "").strip(),
+            hora=hora_str,
+            servicio=servicio.strip(),
+            fecha=fecha_str,
+        )
+        agenda.citas.append(cita)
     
     # También intentar el formato alternativo (solo texto)
     if not agenda.citas:

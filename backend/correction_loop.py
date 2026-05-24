@@ -243,6 +243,37 @@ def _extraer_valor_nuevo(mensaje: str) -> Optional[str]:
     return None
 
 
+def _validar_tipo_valor(valor: str, campo: str) -> Optional[str]:
+    """
+    Valida que el valor extraido por regex coincida con el tipo esperado del campo.
+    Si el tipo no coincide, retorna None para descartar el valor.
+    """
+    if not campo or not valor:
+        return valor
+
+    campo_lower = campo.lower()
+
+    # Campos que deben ser solo digitos
+    campos_numericos = {
+        "id_siniestro", "documento", "telefono", "nit", "edad", "numero",
+    }
+    es_numerico = any(cn in campo_lower for cn in campos_numericos)
+
+    # Campos de fecha
+    es_fecha = "fecha" in campo_lower
+
+    if es_numerico:
+        cleaned = re.sub(r'[\'.\s-]', '', valor)
+        if not cleaned.isdigit():
+            return None
+
+    if es_fecha:
+        if not re.match(r'^\d{1,2}/\d{1,2}/\d{2,4}$', valor) and not re.match(r'^\d{4}-\d{2}-\d{2}$', valor):
+            return None
+
+    return valor
+
+
 def _usar_llm_correccion(mensaje: str) -> dict:
     """Fallback: usar LLM cuando regex no detecta correccion."""
     return {"tipo": "no_detectado", "campo": "", "valor": ""}
@@ -334,6 +365,8 @@ def analizar_mensaje_rechazo(mensaje: str) -> InstruccionCorreccion:
     
     # 4. Extraer valor nuevo si Sandra lo da
     valor_nuevo = _extraer_valor_nuevo(mensaje)
+    if valor_nuevo and campo_detectado:
+        valor_nuevo = _validar_tipo_valor(valor_nuevo, campo_detectado)
     
     # 5. Buscar problemas de formato/documento ANTES de decidir tipo
     formato_detectado = None
@@ -389,7 +422,10 @@ def analizar_mensaje_rechazo(mensaje: str) -> InstruccionCorreccion:
             "¿Me puedes decir exactamente qué campo está mal y cuál sería el valor correcto?"
         )
     elif tipo == TipoCorreccion.CAMPO_FALTANTE and campo_detectado and not valor_nuevo:
-        pregunta = f"Sandra, ¿cuál es el valor correcto para '{campo_detectado}'?"
+        if campo_detectado is not None:
+            pregunta = f"Sandra, ¿cuál es el valor correcto para '{campo_detectado}'?"
+        else:
+            pregunta = "Sandra, ¿podrías decirme qué campo falta y cuál sería su valor correcto?"
     
     return InstruccionCorreccion(
         tipo=tipo,

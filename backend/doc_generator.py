@@ -43,17 +43,33 @@ ATRIBUCION = (
     "REHABILITACION INTEGRAL LABORAL Y OCUPACIONAL SAS"
 )
 
+def _log(msg: str):
+    print(f"[DOCGEN] {msg}", flush=True)
+
+def _normalizar_valor(v, opcional=False):
+    """Centraliza la decision de usar [VERIFICAR] para campos requeridos o '' para opcionales."""
+    if v is None:
+        return "" if opcional else "[VERIFICAR]"
+    return str(v)
+
 # ============================================================
 # UTILIDADES (corregidas)
 # ============================================================
 
-def _poner_texto(celda, texto, bold=None, font_size=None):
+def _poner_texto(celda, texto, bold=None, font_size=None, max_chars=None):
     """Limpia una celda y pone texto nuevo. Maneja runs correctamente.
     Si bold no es None, fuerza bold=True/False en el run.
     Si font_size no es None, configura el tamaño de fuente (en Pt).
+    Si max_chars no es None, trunca el texto en el ultimo espacio dentro del limite.
     Elimina párrafos extra del template para evitar whitespace excesivo."""
     from docx.shared import Pt
     texto = str(texto) if texto is not None else ""
+    if max_chars and len(texto) > max_chars:
+        trunc = texto[:max_chars]
+        ultimo_espacio = trunc.rfind(" ")
+        if ultimo_espacio > 0:
+            trunc = trunc[:ultimo_espacio]
+        texto = trunc
     # Limpiar SOLO el sombreado amarillo (FFFF00) de la celda — NO otros colores decorativos
     tcPr = celda._tc.find(f'{{{NS_W}}}tcPr')
     if tcPr is not None:
@@ -125,7 +141,7 @@ def _buscar_y_reemplazar(doc, etiqueta, valor):
     etiqueta — evita el bug donde el texto de valor contiene la etiqueta.
     """
     etiqueta_lower = etiqueta.lower().strip()
-    valor_str = str(valor) if valor is not None else "[VERIFICAR]"
+    valor_str = _normalizar_valor(valor)
     celdas_escritas = set()
 
     for tabla in doc.tables:
@@ -465,7 +481,7 @@ def _reemplazar_en_parrafos(doc, viejo, nuevo):
     """
     if not viejo:
         return
-    nuevo = str(nuevo) if nuevo is not None else ""
+    nuevo = _normalizar_valor(nuevo, opcional=True)
     for p in doc.paragraphs:
         if viejo in p.text:
             new_text = p.text.replace(viejo, nuevo)
@@ -540,8 +556,8 @@ def _insertar_firma(doc, etiqueta="Insertar Firma"):
 
 
 def _convertir_a_pdf(docx_path):
-    """Convierte DOCX a PDF con LibreOffice headless."""
-    # Buscar soffice en ubicaciones comunes
+    """Convierte DOCX a PDF con LibreOffice headless.
+    Lanza RuntimeError si falla la conversion o LibreOffice no esta disponible."""
     soffice = None
     for candidate in ["/usr/lib/libreoffice/program/soffice", "libreoffice", "soffice"]:
         try:
@@ -552,8 +568,7 @@ def _convertir_a_pdf(docx_path):
             continue
 
     if not soffice:
-        print(f"  ⚠️  LibreOffice no encontrado")
-        return None
+        raise RuntimeError(f"LibreOffice no encontrado. No se pudo convertir a PDF: {docx_path}")
 
     try:
         result = subprocess.run([
@@ -565,17 +580,15 @@ def _convertir_a_pdf(docx_path):
         if pdf_path.exists():
             return str(pdf_path)
         else:
-            print(f"  ⚠️  PDF esperado en {pdf_path} pero no se encontró. stderr: {result.stderr[:200]}")
-            return None
+            raise RuntimeError(f"PDF esperado en {pdf_path} pero no se encontro. stderr: {result.stderr[:200]}")
     except subprocess.TimeoutExpired:
-        print(f"  ⚠️  Timeout convirtiendo {docx_path} (120s)")
-        return None
+        raise RuntimeError(f"Timeout convirtiendo {docx_path} (120s)")
     except subprocess.CalledProcessError as e:
-        print(f"  ⚠️  Error LibreOffice: {e.stderr[:300] if e.stderr else str(e)}")
-        return None
+        raise RuntimeError(f"Error LibreOffice convirtiendo {docx_path}: {e.stderr[:300] if e.stderr else str(e)}")
+    except RuntimeError:
+        raise
     except Exception as e:
-        print(f"  ⚠️  Error inesperado: {e}")
-        return None
+        raise RuntimeError(f"Error inesperado convirtiendo {docx_path}: {e}")
 
 
 def _preparar_documento(src_name, output_name, datos):
@@ -692,9 +705,11 @@ def _llenar_perfil_exigencias(tabla, perfil):
 
 
 def _poner_texto_multiparrafo(celda, texto, bold=None, font_size=None):
-    """Escribe texto en una celda respetando multiples parrafos (separados por \\n\\n)."""
+    """Escribe texto en una celda respetando multiples parrafos. Separa por saltos de linea (\\n o \\n\\n)."""
     from docx.shared import Pt
-    partes = texto.split("\n\n") if "\n\n" in texto else [texto]
+    partes = [p for p in texto.replace("\n\n", "\n").split("\n") if p.strip()]
+    if not partes:
+        partes = [texto]
     
     # Limpiar shading amarillo
     tcPr = celda._tc.find(f'{{{NS_W}}}tcPr')
@@ -778,8 +793,8 @@ def generar_analisis_exigencia(datos, output_name=None):
     if edad_val:
         try:
             _poner_texto(doc.tables[0].rows[9].cells[17], str(edad_val))
-        except (IndexError, AttributeError):
-            pass
+        except (IndexError, AttributeError) as e:
+            _log(f"Celda no encontrada ({e}) - campo 'edad' omitido en analisis_exigencia")
 
     # Dominancia — checkbox
     dom = p.get("dominancia", "")
@@ -821,8 +836,8 @@ def generar_analisis_exigencia(datos, output_name=None):
     if ant_cargo:
         try:
             _poner_texto(doc.tables[0].rows[28].cells[12], ant_cargo)
-        except (IndexError, AttributeError):
-            pass
+        except (IndexError, AttributeError) as e:
+            _log(f"Celda no encontrada ({e}) - campo 'antiguedad_cargo' omitido en analisis_exigencia")
 
     # Fecha ingreso empresa: mismo patrón
     if l.get("fecha_ingreso_empresa"):
@@ -832,8 +847,8 @@ def generar_analisis_exigencia(datos, output_name=None):
     if ant_emp:
         try:
             _poner_texto(doc.tables[0].rows[30].cells[12], ant_emp)
-        except (IndexError, AttributeError):
-            pass
+        except (IndexError, AttributeError) as e:
+            _log(f"Celda no encontrada ({e}) - campo 'antiguedad_empresa' omitido en analisis_exigencia")
 
     _buscar_y_reemplazar(doc, "Forma de vinculación laboral", l.get("vinculacion"))
 
@@ -1564,8 +1579,8 @@ def generar_prueba_trabajo(datos, output_name=None):
     if ant_cargo:
         try:
             _poner_texto(doc.tables[0].rows[29].cells[14], ant_cargo)
-        except (IndexError, AttributeError):
-            pass
+        except (IndexError, AttributeError) as e:
+            _log(f"Celda no encontrada ({e}) - campo 'antiguedad_cargo' omitido en prueba_trabajo")
 
     # Fecha ingreso empresa
     if l.get("fecha_ingreso_empresa"):
@@ -1575,8 +1590,8 @@ def generar_prueba_trabajo(datos, output_name=None):
     if ant_emp:
         try:
             _poner_texto(doc.tables[0].rows[31].cells[14], ant_emp)
-        except (IndexError, AttributeError):
-            pass
+        except (IndexError, AttributeError) as e:
+            _log(f"Celda no encontrada ({e}) - campo 'antiguedad_empresa' omitido en prueba_trabajo")
 
     # Dominancia (checkbox)
     dom = p.get("dominancia", "")
@@ -1695,7 +1710,8 @@ def generar_valoracion_desempeno(datos, output_name=None):
     if edad_val:
         try:
             _poner_texto(doc.tables[0].rows[10].cells[17], str(edad_val))
-        except (IndexError, AttributeError):
+        except (IndexError, AttributeError) as e:
+            _log(f"Celda no encontrada ({e}) - campo 'edad' en valoracion_desempeno, usando fallback")
             _reemplazar_en_tablas(doc, "35", str(edad_val))
 
     # Dominancia con checkbox
@@ -1774,8 +1790,8 @@ def generar_valoracion_desempeno(datos, output_name=None):
     if ant_emp:
         try:
             _poner_texto(doc.tables[0].rows[32].cells[19], ant_emp)
-        except (IndexError, AttributeError):
-            pass
+        except (IndexError, AttributeError) as e:
+            _log(f"Celda no encontrada ({e}) - campo 'antiguedad_empresa' omitido en valoracion_desempeno")
 
     contacto_str = e.get("contacto") or ""
     cargo_str = e.get("cargo_contacto") or ""

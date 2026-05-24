@@ -1,6 +1,22 @@
 const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 const API = API_URL;
 
+export async function authFetch(
+  url: string,
+  options?: RequestInit
+): Promise<Response> {
+  try {
+    const resp = await fetch(url, { ...options, credentials: "include" });
+    if (resp.status === 401) {
+      window.location.href = "/login";
+    }
+    return resp;
+  } catch {
+    window.location.href = "/login";
+    throw new Error("Redirigiendo a login");
+  }
+}
+
 export async function login(pin: string): Promise<boolean> {
   try {
     const resp = await fetch(`${API}/api/login`, {

@@ -25,22 +25,19 @@ Docker (Hermes/Tomy) ──git push──→ GitHub (Manupo12/auto-ma) ──git
 |--------|--------|---------|
 | `doc_generator.py` | 2,172 | Genera 7 formatos .docx + PDF |
 | `chat_handler.py` | ~750 | Motor IA del chat (DeepSeek v4) |
-| `json_validator.py` | 657 | Schemas por formato, validación |
-| `custody.py` | 626 | Cadena custodia, validación semántica |
-| `correction_loop.py` | 560 | Loop corrección post-rechazo |
+| `json_validator.py` | 657 | Schemas por formato, validacion |
+| `custody.py` | 626 | Cadena custodia, validacion semantica (anotado) |
+| `correction_loop.py` | 560 | Loop correccion post-rechazo |
 | `server.py` | 555 | FastAPI — 18+ endpoints |
-| `extractor_medifolios.py` | 465 | Extracción portal Medifolios |
-| `extractor_positiva.py` | 407 | Extracción portal ARL Positiva |
-| `fusionador.py` | 395 | Fusión 3 fuentes + reconciliación |
-| `browser_session.py` | 366 | Manejo sesión expirada portales |
-| `email_reader.py` | 346 | IMAP Gmail — agenda Medifolios |
+| `fusionador.py` | 395 | Fusion 3 fuentes + reconciliacion |
+| `email_reader.py` | 346 | IMAP Gmail — agenda Medifolios (anotado) |
 | `format_selector.py` | 332 | Selecciona formatos por estado |
 | `notificador.py` | 268 | Telegram + dashboard |
-| `flujo_audio.py` | 245 | Deepgram transcripción |
-| `pdf_archivo.py` | 184 | PDF/A-2b archivo legal |
-| `verificar_backup.py` | 215 | Restauración mensual backup |
+| `flujo_audio.py` | 245 | Deepgram transcripcion |
+| `pdf_archivo.py` | 184 | PDF/A-2b archivo legal (anotado) |
+| `verificar_backup.py` | 215 | Restauracion mensual backup (anotado) |
 | `orquestador.py` | 180 | Script principal CLI |
-| `puente_docker.py` | 192 | WSL↔Docker bridge |
+| `playwright_real/` | — | Extraccion automatizada portales (reemplaza extractores viejos) |
 
 ### Dashboard (`dashboard/`) — Next.js 14
 6 páginas: Home, Pacientes, Formatos, Chat (con IA real), Archivos (explorador), Subir Audio

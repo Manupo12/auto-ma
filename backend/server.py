@@ -331,20 +331,24 @@ async def chat_stream(req: ChatRequest):
                       "temperature":0.7,"stream":True},
                 stream=True, timeout=300,
             )
-            for line in resp.iter_lines():
-                if not line: continue
-                s = line.decode("utf-8") if isinstance(line, bytes) else line
-                if not s.startswith("data: "): continue
-                raw = s[6:]
-                if raw == "[DONE]": break
-                try:
-                    chunk = _json.loads(raw)
-                    piece = chunk.get("choices",[{}])[0].get("delta",{}).get("content","") or ""
-                    if piece:
-                        yield f'data: {_json.dumps({"tipo":"delta","contenido":piece})}\n\n'
-                except Exception:
-                    pass
-            yield f'data: {_json.dumps({"tipo":"fin","archivo":archivo_nombre,"accion":"documento" if doc_content else None})}\n\n'
+            try:
+                for line in resp.iter_lines():
+                    if not line: continue
+                    s = line.decode("utf-8") if isinstance(line, bytes) else line
+                    if not s.startswith("data: "): continue
+                    raw = s[6:]
+                    if raw == "[DONE]": break
+                    try:
+                        chunk = _json.loads(raw)
+                        piece = chunk.get("choices",[{}])[0].get("delta",{}).get("content","") or ""
+                        if piece:
+                            yield f'data: {_json.dumps({"tipo":"delta","contenido":piece})}\n\n'
+                    except Exception:
+                        pass
+                yield f'data: {_json.dumps({"tipo":"fin","archivo":archivo_nombre,"accion":"documento" if doc_content else None})}\n\n'
+            except GeneratorExit:
+                resp.close()
+                return
         except Exception as e:
             yield f'data: {_json.dumps({"tipo":"error","contenido":str(e)[:100]})}\n\n'
 
@@ -367,6 +371,12 @@ async def chat_audio(
     if os.getenv("TOMY_COMPLETO_ENABLED", "false").lower() != "true":
         raise HTTPException(503, "Tomy Completo no habilitado. Activar TOMY_COMPLETO_ENABLED=true en .env")
 
+    from backend.task_db import TaskDB
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+    db = TaskDB(db_path)
+    if db.tiene_task_activo(paciente_cc):
+        raise HTTPException(409, f"Ya hay un procesamiento en curso para el paciente CC {paciente_cc}. Espera a que termine.")
+
     ext = Path(audio.filename or "audio.m4a").suffix or ".m4a"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     audio_path = WORKFLOW_AUDIOS_DIR / f"{paciente_cc}_{timestamp}{ext}"
@@ -374,9 +384,7 @@ async def chat_audio(
     _validar_audio(audio.filename or "", contenido)
     audio_path.write_bytes(contenido)
 
-    from backend.task_db import TaskDB
     from backend.workflow_runner import ejecutar_workflow
-    db = TaskDB(os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db"))
     task_id = db.crear_task(paciente_cc=paciente_cc, audio_path=str(audio_path))
 
     import threading
@@ -782,7 +790,16 @@ def sync_workspace():
             cwd=str(WORKSPACE_DIR),
             capture_output=True, text=True, timeout=30
         )
-        
+
+        if push.returncode != 0:
+            return {
+                "ok": False,
+                "error": f"git push fallo (exit {push.returncode}): {push.stderr.strip()}",
+                "pull": pull.stdout.strip(),
+                "push_stdout": push.stdout.strip(),
+                "push_stderr": push.stderr.strip(),
+            }
+
         return {
             "ok": True,
             "pull": pull.stdout.strip(),
@@ -1037,6 +1054,14 @@ async def procesar_paciente(
     if os.getenv("TOMY_COMPLETO_ENABLED", "false").lower() != "true":
         raise HTTPException(503, "Tomy Completo no habilitado (TOMY_COMPLETO_ENABLED=false)")
 
+    from backend.task_db import TaskDB
+    from backend.workflow_runner import ejecutar_workflow
+
+    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+    db = TaskDB(db_path)
+    if db.tiene_task_activo(paciente_cc):
+        raise HTTPException(409, f"Ya hay un procesamiento en curso para el paciente CC {paciente_cc}. Espera a que termine.")
+
     ext = Path(audio.filename or "audio.m4a").suffix or ".m4a"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     audio_path = WORKFLOW_AUDIOS_DIR / f"{paciente_cc}_{timestamp}{ext}"
@@ -1044,11 +1069,6 @@ async def procesar_paciente(
     _validar_audio(audio.filename or "", contenido)
     audio_path.write_bytes(contenido)
 
-    from backend.task_db import TaskDB
-    from backend.workflow_runner import ejecutar_workflow
-
-    db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
-    db = TaskDB(db_path)
     task_id = db.crear_task(paciente_cc=paciente_cc, audio_path=str(audio_path))
 
     import threading

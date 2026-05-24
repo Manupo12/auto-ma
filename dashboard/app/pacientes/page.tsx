@@ -40,7 +40,7 @@ export default function PacientesPage() {
         setFormatos(fmtData);
       }
     } catch {
-      setError("No se pudo conectar con el servidor en el servidor.");
+      setError("No se pudo conectar con el servidor.");
     } finally {
       setBuscando(false);
     }

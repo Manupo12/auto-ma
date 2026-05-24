@@ -17,6 +17,14 @@ export default function SubirAudioPage() {
 
   const handleFile = (file: File | null) => {
     if (!file) return;
+    if (!file.type.startsWith("audio/")) {
+      setError("El archivo debe ser un audio (M4A, MP3, WAV, etc.).");
+      return;
+    }
+    if (file.size > 200 * 1024 * 1024) {
+      setError("El audio no debe superar los 200 MB.");
+      return;
+    }
     setArchivo(file);
     setError("");
   };
@@ -100,7 +108,7 @@ export default function SubirAudioPage() {
               <p className="text-2xl font-semibold text-slate-700">
                 Arrastra el audio aquí o haz click
               </p>
-              <p className="text-lg text-slate-500">M4A, MP3, WAV — sin límite de tamaño</p>
+              <p className="text-lg text-slate-500">M4A, MP3, WAV -- maximo 200 MB</p>
             </div>
           )}
         </div>

@@ -39,6 +39,15 @@ def _detectar_discrepancias(datos_medi: Dict, datos_pos: Dict) -> list:
         s = "".join(c for c in s if unicodedata.category(c) != "Mn")
         return " ".join(s.split())
 
+    def _similitud_palabras(s1: str, s2: str) -> float:
+        p1 = set(s1.split())
+        p2 = set(s2.split())
+        if not p1 or not p2:
+            return 0.0
+        inter = p1 & p2
+        union = p1 | p2
+        return len(inter) / len(union)
+
     def _agregar(campo, v_medi, v_pos, severidad="advertencia", resolucion=""):
         if v_medi and v_pos and _norm(str(v_medi)) != _norm(str(v_pos)):
             discrepancias.append({
@@ -60,9 +69,12 @@ def _detectar_discrepancias(datos_medi: Dict, datos_pos: Dict) -> list:
     nombre_medi = datos_medi.get("nombre", "")
     nombre_pos = (datos_pos.get("datos_asegurado", {}) or {}).get("nombre", "")
     if nombre_medi and nombre_pos and _norm(nombre_medi) != _norm(nombre_pos):
-        if nombre_medi.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").upper() == \
-           nombre_pos.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").upper():
-            pass  # solo tildes
+        n1 = nombre_medi.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").upper()
+        n2 = nombre_pos.replace("Á","A").replace("É","E").replace("Í","I").replace("Ó","O").replace("Ú","U").upper()
+        if n1 == n2:
+            pass
+        elif _similitud_palabras(_norm(nombre_medi), _norm(nombre_pos)) > 0.8:
+            pass
         else:
             _agregar("nombre", nombre_medi, nombre_pos,
                      severidad="advertencia", resolucion="Verificar cedula fisica del paciente")

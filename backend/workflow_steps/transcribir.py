@@ -75,15 +75,21 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
     if not _necesita_chunking(duracion):
         _log("Sin chunking — un solo Deepgram")
         resultado = transcribir_audio(str(audio))
+        texto = resultado.get("texto", "")
         confianza = resultado.get("confianza", 0)
-        if confianza < 0.6:
+
+        if not texto or not texto.strip():
+            warnings.append("Transcripcion vacia - audio posiblemente en silencio")
+            _log("WARNING: transcripcion vacia")
+
+        if confianza < 0.4:
+            warnings.append(f"Confianza muy baja del audio: {confianza:.2f}")
+        elif confianza < 0.6:
             warnings.append(f"Confianza baja del audio: {confianza:.2f}")
-            fallidos = sum(1 for r in chunk_resultados if not r.get("ok"))
-    if fallidos / max(len(chunks), 1) > 0.2:
-        warnings.append(f"{fallidos}/{len(chunks)} chunks fallaron")
-    return {
-            "texto": resultado["texto"],
-            "segmentos": resultado["segmentos"],
+
+        return {
+            "texto": texto,
+            "segmentos": resultado.get("segmentos", []),
             "duracion": duracion,
             "confianza_global": confianza,
             "chunks_procesados": 1,
@@ -105,8 +111,19 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
         _log(f"Chunk {i+1}/{len(chunks)}: {chunk_path.name}")
         try:
             r = transcribir_audio(str(chunk_path))
-            textos.append(r["texto"])
-            confianzas.append(r.get("confianza", 0))
+            texto_chunk = r.get("texto", "")
+
+            if not texto_chunk or not texto_chunk.strip():
+                _log(f"Chunk {i+1}: transcripcion vacia")
+                warnings.append(f"Chunk {i+1}: transcripcion vacia")
+
+            conf_chunk = r.get("confianza", 0)
+            if conf_chunk < 0.4:
+                warnings.append(f"Chunk {i+1}: confianza muy baja ({conf_chunk:.2f})")
+
+            textos.append(texto_chunk)
+            confianzas.append(conf_chunk)
+            chunk_resultados.append({"ok": True})
             for seg in r["segmentos"]:
                 segmentos_global.append({
                     **seg,
@@ -125,8 +142,14 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
         pass
 
     confianza_global = sum(confianzas) / len(confianzas) if confianzas else 0
-    if confianza_global < 0.6:
+    if confianza_global < 0.4:
+        warnings.append(f"Confianza global muy baja: {confianza_global:.2f}")
+    elif confianza_global < 0.6:
         warnings.append(f"Confianza global baja: {confianza_global:.2f}")
+
+    fallidos = sum(1 for r in chunk_resultados if not r.get("ok"))
+    if len(chunks) > 0 and fallidos / len(chunks) > 0.2:
+        warnings.append(f"{fallidos}/{len(chunks)} chunks fallaron")
 
     return {
         "texto": "\n".join(textos),

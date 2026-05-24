@@ -68,13 +68,13 @@ async def _extraer_form_pacientes(page: Page) -> Dict:
     return campos
 
 
-async def _extraer_siniestro_de_agenda(page: Page, cc: str) -> str:
-    """Navega a Agenda Citas y busca siniestro en observaciones."""
+async def _extraer_siniestro_de_agenda(page: Page, cc: str):
+    """Navega a Agenda Citas y busca siniestro en observaciones. Retorna (siniestro, fuente)."""
     try:
         await page.goto(S.MEDI_AGENDA["url"], timeout=30000)
         await page.wait_for_timeout(5000)
     except Exception:
-        return ""
+        return "", ""
 
     body = await page.text_content("body") or ""
 
@@ -82,13 +82,25 @@ async def _extraer_siniestro_de_agenda(page: Page, cc: str) -> str:
         r"[Nn][Oo]\.?\s*[Ss]iniestro[:\s]*(\d{8,12})", body
     )
     if siniestro_match:
-        return siniestro_match.group(1)
+        return siniestro_match.group(1), "agenda"
 
     siniestro_match = re.search(r"[Ss]iniestro[:\s]*(\d{8,12})", body)
     if siniestro_match:
-        return siniestro_match.group(1)
+        return siniestro_match.group(1), "agenda"
 
-    return ""
+    try:
+        cita_link = await page.query_selector(f"tr:has-text('{cc}') a, a:has-text('{cc}')")
+        if cita_link:
+            await cita_link.click()
+            await page.wait_for_timeout(5000)
+            obs_body = await page.text_content("body") or ""
+            siniestro_match = re.search(r"[Ss]iniestro[:\s]*(\d{8,12})", obs_body)
+            if siniestro_match:
+                return siniestro_match.group(1), "historia"
+    except Exception:
+        pass
+
+    return "", ""
 
 
 async def get_paciente_completo(page: Page, cc: str) -> Dict:
@@ -103,19 +115,25 @@ async def get_paciente_completo(page: Page, cc: str) -> Dict:
         if cargado:
             form = await _extraer_form_pacientes(page)
             datos.update(form)
+            partes = [datos.get(k, "") for k in ("nombre1", "nombre2", "apellido1", "apellido2") if datos.get(k)]
+            if partes:
+                datos["nombre"] = " ".join(partes)
         else:
             datos["error_form"] = "paciente no encontrado o no cargado en el form"
     except Exception as e:
         datos["error_form"] = f"{type(e).__name__}: {e}"
 
     try:
-        siniestro = await _extraer_siniestro_de_agenda(page, cc)
+        siniestro, fuente = await _extraer_siniestro_de_agenda(page, cc)
         if siniestro:
             datos["siniestro_medi"] = siniestro
+            datos["siniestro_fuente"] = fuente
         else:
             datos["siniestro_medi"] = "[VERIFICAR]"
+            datos["siniestro_fuente"] = "no_encontrado"
     except Exception as e:
         datos["error_agenda"] = f"{type(e).__name__}: {e}"
         datos["siniestro_medi"] = "[VERIFICAR]"
+        datos["siniestro_fuente"] = "error"
 
     return datos

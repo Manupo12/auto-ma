@@ -147,12 +147,8 @@ def detectar_estado(datos: dict) -> EstadoCaso:
     concepto = str(_get_nested(datos, "consulta.concepto_desempeno") or "").upper()
     tipo_estudio = str(_get_nested(datos, "visita.tipo_estudio") or "").upper()
 
-    es_prueba = (
-        "PRUEBA DE TRABAJO", "prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desempe", "prueba en el trabajo", "prueba en puesto" in metodologia
-        or "PRUEBA DE TRABAJO", "prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desempe", "prueba en el trabajo", "prueba en puesto" in concepto
-        or "PRUEBA DE TRABAJO", "prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desempe", "prueba en el trabajo", "prueba en puesto" in tipo_estudio
-        or "PT" == tipo_estudio.strip()
-    )
+    KEYWORDS_PRUEBA = ["prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desem"]
+    es_prueba = any(kw in metodologia.lower() for kw in KEYWORDS_PRUEBA) or any(kw in concepto.lower() for kw in KEYWORDS_PRUEBA) or any(kw in tipo_estudio.lower() for kw in KEYWORDS_PRUEBA) or "PT" == tipo_estudio.strip()
     if es_prueba:
         # Determinar estado base para extras
         return EstadoCaso.PRUEBA_TRABAJO

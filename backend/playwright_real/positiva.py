@@ -9,6 +9,8 @@ import re
 from typing import Dict, List
 from playwright.async_api import Page
 
+from backend.playwright_real import selectores as S
+
 
 async def _buscar_en_consulta_integral(page: Page, cc: str) -> bool:
     """Navega a CONSULTA INTEGRAL y busca paciente por CC."""
@@ -40,19 +42,33 @@ async def _extraer_datos_visibles(page: Page) -> Dict:
     body = await page.text_content("body") or ""
     datos = {}
 
-    siniestro_match = re.search(r"[Nn][oO]\.?\s*[Ss]iniestro[:\s]*(\d{7,12})", body)
-    if siniestro_match:
-        datos["siniestro_id"] = siniestro_match.group(1)
-
     fecha_match = re.search(r"[Ff]echa\s*[Ss]iniestro[:\s]*(\d{2,4}[-/]\d{2}[-/]\d{2,4})", body)
     if fecha_match:
         datos["fecha_siniestro"] = fecha_match.group(1)
 
-    cie10_matches = re.findall(r'([A-Z]\d{2,3}(?:\.\d)?)\s*[-–]\s*([A-Za-záéíóúñ ]{5,60})', body)
+    cie10_text = ""
+    try:
+        for selector in [
+            "table:has(th:has-text('Diagnóstico'))",
+            "table:has(th:has-text('CIE'))",
+            "table:has(th:has-text('DX'))",
+            "[data-tab='siniestros'] table",
+            "table.siniestros",
+            "table.datos-clinicos",
+            "table.datosClinicos",
+        ]:
+            els = await page.query_selector_all(selector)
+            for el in els:
+                txt = await el.text_content() or ""
+                cie10_text += txt + "\n"
+    except Exception:
+        cie10_text = body
+
+    cie10_matches = re.findall(r'([A-Z]\d{2,3}(?:\.\d)?)\s*[-–]\s*([A-Za-záéíóúñ ]{5,60})', cie10_text)
     if cie10_matches:
         datos["diagnosticos"] = [{"codigo": m[0], "descripcion": m[1].strip()} for m in cie10_matches[:3]]
     else:
-        cie10_simple = re.findall(r'\b([A-Z]\d{2,3}(?:\.\d)?)\b', body)
+        cie10_simple = re.findall(r'\b([A-Z]\d{2,3}(?:\.\d)?)\b', cie10_text)
         if cie10_simple:
             datos["cie10_candidatos"] = list(set(cie10_simple))[:5]
 
@@ -62,6 +78,48 @@ async def _extraer_datos_visibles(page: Page) -> Dict:
 
     datos["texto_completo_len"] = len(body)
     return datos
+
+
+async def _extraer_siniestros_tabla(page: Page) -> list:
+    """Extrae siniestros usando query_selector_all sobre la tabla de siniestros."""
+    siniestros = []
+
+    try:
+        for tab_label in ["SINIESTROS", "Siniestros", "siniestros"]:
+            tabs = await page.query_selector_all(f"a:has-text('{tab_label}'), li:has-text('{tab_label}')")
+            if tabs:
+                await tabs[0].click()
+                await page.wait_for_timeout(5000)
+                break
+    except Exception:
+        pass
+
+    try:
+        filas = await page.query_selector_all(S.POS_TABLA_SINIESTROS["filas"])
+    except Exception:
+        filas = await page.query_selector_all("tbody tr")
+
+    for fila in filas:
+        try:
+            celdas = await fila.query_selector_all("td")
+            if len(celdas) < 3:
+                continue
+
+            siniestro = {
+                "id": (await celdas[S.POS_TABLA_SINIESTROS["col_siniestro"] - 1].text_content() or "").strip(),
+                "fecha": (await celdas[S.POS_TABLA_SINIESTROS["col_fecha"] - 1].text_content() or "").strip(),
+            }
+            if len(celdas) > S.POS_TABLA_SINIESTROS["col_tipo_evento"]:
+                siniestro["tipo"] = (await celdas[S.POS_TABLA_SINIESTROS["col_tipo_evento"] - 1].text_content() or "").strip()
+            if len(celdas) > S.POS_TABLA_SINIESTROS["col_diagnostico"]:
+                siniestro["diagnostico"] = (await celdas[S.POS_TABLA_SINIESTROS["col_diagnostico"] - 1].text_content() or "").strip()
+
+            if siniestro["id"] and siniestro["id"].isdigit() and len(siniestro["id"]) >= 7:
+                siniestros.append(siniestro)
+        except Exception:
+            continue
+
+    return siniestros
 
 
 async def _buscar_en_rhi(page: Page, cc: str) -> Dict:
@@ -92,7 +150,7 @@ async def _buscar_en_rhi(page: Page, cc: str) -> Dict:
             rhi["fechas_encontradas"] = fechas[:5]
 
     except Exception:
-        pass
+        return {"_error": "RHI no disponible", "_rhi_ok": False}
     return rhi
 
 
@@ -110,30 +168,13 @@ async def get_paciente_completo(page: Page, cc: str) -> Dict:
     visible = await _extraer_datos_visibles(page)
     datos.update(visible)
 
-    if "siniestro_id" not in datos or not datos.get("cie10_candidatos"):
+    if not datos.get("cie10_candidatos"):
         rhi_data = await _buscar_en_rhi(page, cc)
         datos["rhi"] = rhi_data
 
-    # Buscar en SINIESTROS tab si existe
-    try:
-        for tab_label in ["SINIESTROS", "Siniestros", "siniestros"]:
-            tabs = await page.query_selector_all(f"a:has-text('{tab_label}'), li:has-text('{tab_label}')")
-            if tabs:
-                await tabs[0].click()
-                await page.wait_for_timeout(5000)
-                break
-
-        body2 = await page.text_content("body") or ""
-
-        siniestro_ids = re.findall(r"(\d{8,12})", body2)
-        siniestro_ids = [s for s in siniestro_ids if s != cc and len(s) >= 8][:5]
-        if siniestro_ids and "siniestro_id" not in datos:
-            datos["siniestro_id"] = siniestro_ids[0]
-
-        cie10_new = list(set(re.findall(r'\b([A-Z]\d{2,3}(?:\.\d)?)\b', body2)))
-        if cie10_new:
-            datos["cie10_encontrados"] = cie10_new[:5]
-    except Exception:
-        pass
+    siniestros = await _extraer_siniestros_tabla(page)
+    if siniestros:
+        datos["siniestros"] = siniestros
+        datos["siniestro_id"] = siniestros[0]["id"]
 
     return datos

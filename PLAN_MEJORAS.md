@@ -1,18 +1,23 @@
-# RILO SAS — Plan Integral de Mejoras v4
+# RILO SAS — Plan Integral de Mejoras v6
 
-> Auditoría quirúrgica completa. 4 pasadas.
+> Auditoría quirúrgica completa. 6 rondas de análisis paralelo.
 > Cada item tiene archivo, línea exacta y descripción del fix real.
 > Agente de implementación: **OpenCode**.
 
 ---
 
-## Índice por severidad
+## Índice
 
 - [🔴 CRÍTICOS — 9 items](#-críticos)
 - [🟠 ALTOS — 14 items](#-altos)
 - [🟡 MEDIOS — 12 items](#-medios)
 - [🟢 BAJOS — 6 items](#-bajos)
 - [💬 Chat y progreso del workflow — 9 items](#-chat-y-progreso-del-workflow)
+- [📄 Generador de documentos — 10 items](#-generador-de-documentos)
+- [🔌 Extractores Playwright — 8 items](#-extractores-playwright)
+- [🛠️ Backend core — 12 items](#️-backend-core)
+- [🖥️ Dashboard frontend — 10 items](#️-dashboard-frontend)
+- [🚀 Deployment y configuración — 10 items](#-deployment-y-configuración)
 - [🗑️ Código muerto — 17 archivos](#️-código-muerto)
 - [📋 Orden de implementación](#-orden-de-implementación)
 
@@ -888,6 +893,814 @@ if (ESTADOS_LISTOS.includes(task.estado)) {
 
 ---
 
+## 📄 Generador de Documentos
+
+Esta sección cubre el bug de celdas alargadas y todos los problemas relacionados encontrados en `doc_generator.py`, los templates y la conversión a PDF.
+
+---
+
+### G-1 · Celdas alargadas: texto largo se inserta sin truncar ni dividir (BUG REPORTADO)
+
+**Archivo:** `backend/doc_generator.py` líneas 50–99 (`_poner_texto`), 694–744 (`_poner_texto_multiparrafo`), y múltiples llamadas en líneas ~806, 866, 879, 884, 890, 931, 937
+
+**Causa raíz — dos problemas combinados:**
+
+**Problema A — Sin truncamiento de longitud:** `_poner_texto()` inserta el valor tal como viene del JSON sin ningún límite de caracteres. Si el diagnóstico del paciente es una cadena de 400+ caracteres ("ESGUINCE GRADO I / FRACTURA OBLICUA / TENDINITIS..."), se inserta completa en una celda de ancho fijo. Word expande la celda verticalmente pero también puede distorsionar el ancho de la columna cuando el texto no tiene espacios donde partir.
+
+**Problema B — Separador de párrafos incorrecto:** `_poner_texto_multiparrafo()` busca `"\n\n"` (doble salto) para dividir en párrafos, pero los datos del JSON llegan con `"\n"` (simple). Resultado: todo el texto queda como un bloque único sin dividir.
+
+```python
+# línea 694 — busca \n\n pero los datos tienen \n
+parrafos = texto.split("\n\n")   # nunca divide si el texto usa \n simple
+```
+
+**Fix:**
+```python
+def _poner_texto(celda, valor, bold=False, font_size=None, max_chars=300):
+    texto = str(valor) if valor is not None else ""
+    if len(texto) > max_chars:
+        # truncar en el último espacio antes del límite
+        texto = texto[:max_chars].rsplit(" ", 1)[0] + "…"
+    # ... resto igual
+
+def _poner_texto_multiparrafo(celda, texto, ...):
+    # normalizar: aceptar \n y \n\n como separadores
+    parrafos = [p for p in texto.replace("\n\n", "\n").split("\n") if p.strip()]
+```
+
+`max_chars` por defecto 300, configurable por campo. Para campos narrativos largos (apreciaciones, recomendaciones) usar 800.
+
+---
+
+### G-2 · `format_selector.py`: detección de "Prueba de Trabajo" NUNCA funciona — bug de sintaxis Python
+
+**Archivo:** `backend/format_selector.py` líneas ~151–154
+
+Este es un bug de Python silencioso. El código hace algo así:
+
+```python
+es_prueba = (
+    "PRUEBA DE TRABAJO", "prueba de trabajo" in metodologia
+    or "PRUEBA DE TRABAJO" in concepto
+)
+```
+
+Python interpreta la primera línea como una **tupla** `("PRUEBA DE TRABAJO", resultado_del_in)`, que siempre es truthy (una tupla no vacía). La detección automática de casos de "Prueba de Trabajo" **nunca funciona correctamente** — o siempre detecta, o nunca detecta, dependiendo de cómo esté escrita exactamente.
+
+**Fix:**
+```python
+KEYWORDS_PRUEBA = ["prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desempe"]
+es_prueba = any(kw in metodologia.lower() for kw in KEYWORDS_PRUEBA) \
+         or any(kw in concepto.lower() for kw in KEYWORDS_PRUEBA)
+```
+
+---
+
+### G-3 · Índices hardcodeados de tabla/fila/celda — silencian errores cuando cambia el template
+
+**Archivo:** `backend/doc_generator.py` líneas 780–781, 823–824, 834–835, 1567, 1578, 1698, 1777
+
+```python
+_poner_texto(doc.tables[0].rows[9].cells[17], str(edad_val))   # línea 781
+_poner_texto(doc.tables[0].rows[28].cells[12], ant_cargo)      # línea 824
+_poner_texto(doc.tables[1].rows[6].cells[3], valor)            # línea ~934
+```
+
+Todos están envueltos en `except (IndexError, AttributeError): pass`. Si el template tiene una fila menos (p.ej. alguien lo editó), el campo simplemente no se escribe. Sin log, sin advertencia, el documento queda incompleto.
+
+**Fix a corto plazo:** Cambiar `pass` por log:
+```python
+except (IndexError, AttributeError) as e:
+    _log(f"⚠️ Celda no encontrada ({e}) — campo omitido en {template_name}")
+```
+
+**Fix a largo plazo:** Implementar búsqueda de celda por contenido de etiqueta en lugar de índice:
+```python
+def _buscar_celda_por_etiqueta(doc, etiqueta):
+    for tabla in doc.tables:
+        for fila in tabla.rows:
+            for i, celda in enumerate(fila.cells):
+                if etiqueta.lower() in celda.text.lower():
+                    # la celda valor es la siguiente
+                    if i + 1 < len(fila.cells):
+                        return fila.cells[i + 1]
+    return None
+```
+
+---
+
+### G-4 · `_convertir_a_pdf()` retorna `None` si LibreOffice no está — el caller nunca lo verifica
+
+**Archivo:** `backend/doc_generator.py` líneas ~542–578 y llamadas en ~1037, 1085
+
+```python
+def _convertir_a_pdf(docx_path):
+    if not soffice:
+        print(f"⚠️ LibreOffice no encontrado")
+        return None   # ← retorna None silenciosamente
+
+# Caller (línea ~1037):
+doc.save(str(dst))
+_convertir_a_pdf(str(dst))   # ← retorno ignorado
+return str(dst)              # ← devuelve ruta al DOCX, no al PDF
+```
+
+El workflow de QA y el endpoint de descarga esperan que haya un PDF. Si LibreOffice falla, no hay PDF pero tampoco hay error — el sistema dice "listo" con documentos sin PDF.
+
+**Fix:**
+```python
+pdf_path = _convertir_a_pdf(str(dst))
+if pdf_path is None:
+    raise RuntimeError(f"Conversión PDF falló para {dst.name} — LibreOffice no disponible o error")
+return str(pdf_path)
+```
+
+---
+
+### G-5 · Tablas buscadas por índice global frágil (`doc.tables[2]`)
+
+**Archivo:** `backend/doc_generator.py` líneas ~841, 934, 953
+
+```python
+tabla1 = doc.tables[1]   # asume que la tabla 1 es siempre la correcta
+t2 = doc.tables[2]
+t3 = doc.tables[3]
+```
+
+Si alguien agrega una tabla al inicio del template (para un encabezado, por ejemplo), todos los índices se desplazan y se escriben datos en las tablas equivocadas sin ningún error.
+
+**Fix:** Buscar tablas por un texto identificador único que esté en su primera celda, no por índice.
+
+---
+
+### G-6 · Valor vacío inconsistente: a veces `[VERIFICAR]`, a veces `""`
+
+**Archivo:** `backend/doc_generator.py` líneas 128 y 468
+
+```python
+# línea 128:
+valor_str = str(valor) if valor is not None else "[VERIFICAR]"
+
+# línea 468:
+nuevo = str(nuevo) if nuevo is not None else ""
+```
+
+Dos funciones distintas del mismo archivo tienen comportamiento distinto para "campo vacío". Dependiendo de cuál se llame, el campo queda como `[VERIFICAR]` (visible y fácil de encontrar) o como `""` (invisible, parece que está correcto pero está vacío).
+
+**Fix:** Centralizar la decisión en una función `_normalizar_valor(v)` que use siempre `[VERIFICAR]` para campos que debieran tener contenido.
+
+---
+
+### G-7 · Templates tienen archivos `.bak` — posible corrupción anterior
+
+**Archivo:** `backend/templates/formatos/*.bak`
+
+Existen archivos `.bak` para cada template, lo que sugiere que hubo corrupción o edición accidental en el pasado y se hicieron backups. Los `.bak` no son usados por el código pero su presencia indica que los templates actuales pueden ser versiones modificadas que difieren de los originales diseñados para los índices hardcodeados del código.
+
+**Fix:** Comparar los templates actuales contra los `.bak` para ver si cambiaron estructura de tablas. Si sí cambiaron, los índices de G-3 están desactualizados.
+
+---
+
+### G-8 · Deepgram: audio en silencio o confianza 0.0 no se maneja
+
+**Archivo:** `backend/workflow_steps/transcribir.py`
+
+Si el audio está en silencio (grabación fallida, micrófono apagado), Deepgram devuelve `{"alternatives": []}` o un resultado con `confidence: 0.0`. El código no valida esto y propaga un texto vacío o de muy baja calidad al LLM, que luego inventa los datos del paciente.
+
+**Fix:** Después de recibir la respuesta de Deepgram:
+```python
+if not texto_transcripcion.strip():
+    return {"ok": False, "error": "Transcripción vacía — el audio puede estar en silencio o ser inaudible"}
+if confianza_global < 0.4:
+    resultado["advertencias"].append(f"Confianza de transcripción baja ({confianza_global:.0%}) — revisar calidad del audio")
+```
+
+---
+
+### G-9 · `POST /api/archivos/sync` puede reportar éxito aunque `git push` falle
+
+**Archivo:** `backend/server.py` endpoint `POST /api/archivos/sync`  
+**Archivo:** `dashboard/app/archivos/page.tsx` líneas 80–93
+
+El frontend muestra "Sincronizado con GitHub" si `data.ok` es `True`. Si el backend ejecuta `git push` y falla (sin permisos, conflicto de rama, sin conectividad), el error puede quedar en stderr sin cambiar `ok`. Sandra cree que los documentos están en GitHub cuando no lo están.
+
+**Fix en backend:** Capturar el código de retorno de `git push` y propagar el stderr al frontend si es distinto de 0.
+
+---
+
+### G-10 · Inconsistencia en el total de pasos reportado (9 vs 10)
+
+**Archivo:** `dashboard/app/chat/page.tsx` línea 207  
+**Archivo:** `backend/server.py` línea ~399  
+**Archivo:** `backend/workflow_runner.py` línea ~23
+
+El fix parcial del agente cambió algunas referencias de `/9` a `/10` pero al menos una instancia quedó:
+
+```typescript
+// chat/page.tsx línea 207
+contenido: `Hubo un problema en el paso ${task.paso_actual}/9: ...`  // ← sigue siendo /9
+```
+
+**Fix:** Definir `TOTAL_PASOS = 10` como constante compartida en ambos lados (backend y frontend) y no hardcodear el número en ningún mensaje.
+
+---
+
+## 🔌 Extractores Playwright
+
+Los extractores son el punto de entrada de todos los datos clínicos. Si fallan aquí, todo el pipeline genera basura.
+
+---
+
+### X-1 · Medifolios no une `nombre1 + nombre2 + apellido1 + apellido2` en un campo `nombre`
+
+**Archivo:** `backend/playwright_real/medifolios.py` líneas 47–68
+
+El extractor guarda los campos de nombre por separado: `nombre1`, `nombre2`, `apellido1`, `apellido2`. Pero el orquestador y el fusionador hacen `datos_medi.get("nombre", "")` esperando un campo unificado — obtienen `""`. La síntesis del LLM recibe el paciente sin nombre.
+
+**Fix:** Al final de la extracción, agregar:
+```python
+partes = [campos.get(k, "") for k in ("nombre1", "nombre2", "apellido1", "apellido2") if campos.get(k)]
+if partes:
+    campos["nombre"] = " ".join(partes)
+```
+
+---
+
+### X-2 · Positiva extrae solo el primer siniestro — ignora pacientes con múltiples
+
+**Archivo:** `backend/playwright_real/positiva.py` líneas 38–64, 99–140
+
+El extractor usa regex sobre el HTML plano y guarda `datos["siniestro_id"]` (singular). Positiva puede tener múltiples siniestros por paciente (uno activo, uno cerrado). El código ignora todos excepto el primero encontrado.
+
+**Documentado en `skills/flujo-browser/`:** Positiva tiene una tabla de siniestros — debe parsearse como lista.
+
+**Fix:** Usar `page.query_selector_all()` sobre las filas de la tabla de siniestros en lugar de regex, y guardar `datos["siniestros"] = [...]` como lista. El fusionador ya tiene lógica para lista de siniestros — solo falta que lleguen.
+
+---
+
+### X-3 · RHI de Positiva falla silenciosamente con `except: pass`
+
+**Archivo:** `backend/playwright_real/positiva.py` líneas 67–96
+
+```python
+async def _buscar_en_rhi(page: Page, cc: str) -> Dict:
+    try:
+        await page.goto("...rhi/consultarCaso/init", timeout=30000)
+        # ...
+    except Exception:
+        pass  # falla silenciosa
+    return rhi  # retorna {} sin indicar error
+```
+
+El caller no puede distinguir entre "RHI no tiene datos para este paciente" y "la consulta falló". Si falla, el workflow continúa sin los datos de rehabilitación del paciente.
+
+**Fix:** Retornar `{"_error": "RHI no disponible", "_rhi_ok": False}` en el except, y que el orquestador lo marque como advertencia.
+
+---
+
+### X-4 · Siniestro de Medifolios (extraído de agenda) falla sin error si la cita no está en pantalla
+
+**Archivo:** `backend/playwright_real/medifolios.py` líneas 71–92
+
+El siniestro se extrae buscando en el body de la página de agenda. Si la cita del paciente no aparece (es antigua, o está filtrada), `body` no contiene el número → retorna `""` sin ningún indicador de fallo.
+
+**Fix:** Si no se encuentra siniestro en la agenda, intentar buscarlo en la sección de "Observaciones" o "Historia Clínica" como fallback, y marcar `siniestro_fuente = "agenda"` o `"historia"` para rastrear la calidad del dato.
+
+---
+
+### X-5 · Detección de discrepancias genera falsos positivos por normalización incompleta
+
+**Archivo:** `backend/playwright_real/orquestador.py` líneas 36–40
+
+```python
+def _norm(s: str) -> str:
+    s = unicodedata.normalize("NFD", str(s).lower().strip())
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return " ".join(s.split())
+```
+
+"JUAN CARLOS DURAN NARVAEZ" (Medifolios) vs "JUAN C. DURAN" (Positiva) → se detecta como discrepancia aunque sea el mismo paciente. Esto genera alertas falsas de discrepancia que Sandra ve en Telegram y no sabe qué hacer.
+
+**Fix:** Implementar similitud de Jaccard o distancia de Levenshtein para nombres: si similitud > 80%, no marcar como discrepancia sino como "probable match".
+
+---
+
+### X-6 · CIE-10: regex demasiado amplio captura etiquetas no relevantes
+
+**Archivo:** `backend/playwright_real/positiva.py` línea 51
+
+```python
+cie10_matches = re.findall(r'([A-Z]\d{2,3}(?:\.\d)?)\s*[-–]\s*([A-Za-záéíóúñ ]{5,60})', body)
+```
+
+Captura cualquier patrón `X00 - Descripción` del HTML, incluyendo etiquetas de navegación, categorías de menú, etc. El código toma el primero encontrado como diagnóstico principal.
+
+**Fix:** Buscar el diagnóstico solo dentro del contexto de la sección "Diagnóstico" o tabla de datos clínicos usando selectores CSS, no regex sobre todo el body.
+
+---
+
+### X-7 · Timeout de Playwright (30s) insuficiente para Positiva bajo carga
+
+**Archivo:** `backend/playwright_real/session.py` + `.env` `PLAYWRIGHT_TIMEOUT_MS=30000`
+
+ARL Positiva puede tardar 40–60s en cargar. Con 30s de timeout la extracción falla sistemáticamente en conexiones lentas o cuando el servidor del gobierno está lento.
+
+**Fix:** `PLAYWRIGHT_TIMEOUT_MS=60000` para Positiva específicamente, con 2 reintentos automáticos antes de marcar error.
+
+---
+
+### X-8 · Sesión de portal: backup del state se sobreescribe antes de verificar el nuevo login
+
+**Archivo:** `backend/playwright_real/session.py` líneas 92–174
+
+Si la sesión expiró y el re-login falla, el `storage_state` anterior ya fue sobreescrito con un state inválido. La próxima extracción también falla porque no hay sesión válida guardada.
+
+**Fix:** Guardar backup antes de sobreescribir: `state_path.rename(str(state_path) + ".bak")`. Si el nuevo login falla, restaurar el backup.
+
+---
+
+## 🛠️ Backend Core
+
+Bugs encontrados en `server.py`, `chat_handler.py`, `correction_loop.py`, `notificador.py`, `email_reader.py`, `backup_diario.py` y `fusionador.py`.
+
+---
+
+### BC-1 · Race condition crítica: dos uploads del mismo CC corren en paralelo y se sobreescriben
+
+**Archivo:** `backend/server.py` línea 1060
+
+Si Sandra sube dos audios del mismo CC rápidamente (o hace doble clic), se crean dos `threading.Thread` que corren el workflow simultáneamente. Ambos escriben en el mismo `{cc}-completo.json`. El último que termine gana; los datos del primero se pierden silenciosamente.
+
+**Fix:**
+1. Al recibir un request de procesamiento, verificar si ya hay un task activo para ese CC: si sí, rechazar con `409 Conflict` y mensaje claro.
+2. Usar file lock en la escritura del JSON (ver C-5 del plan principal).
+
+---
+
+### BC-2 · `chat_handler.py`: `max()` sobre fechas en formato string causa TypeError
+
+**Archivo:** `backend/chat_handler.py` línea 210
+
+```python
+best = max(cand, key=lambda x: x[1])  # x[1] es "31/05/2026" (string dd/mm/yyyy)
+```
+
+`max()` sobre strings en formato `dd/mm/yyyy` ordena lexicográficamente, no cronológicamente. "31/05/2026" < "01/06/2026" en orden léxico → selecciona el archivo incorrecto como "más reciente".
+
+**Fix:**
+```python
+from datetime import datetime
+best = max(cand, key=lambda x: datetime.strptime(x[1], "%d/%m/%Y") if x[1] else datetime.min)
+```
+
+---
+
+### BC-3 · `chat_handler.py`: variable `resp` puede no estar inicializada antes de usarse
+
+**Archivo:** `backend/chat_handler.py` línea 443
+
+Si el primer request al LLM lanza excepción antes de asignar `resp`, y luego el código intenta `resp.status_code` en el manejo del error, lanza `UnboundLocalError`.
+
+**Fix:** Inicializar `resp = None` antes del bloque try, y verificar `if resp is not None` antes de acceder a sus atributos.
+
+---
+
+### BC-4 · `correction_loop.py`: valor extraído puede ser parcial o de tipo incorrecto
+
+**Archivo:** `backend/correction_loop.py` líneas 210–243
+
+Los regex de extracción de valor capturan el primer match numérico o string, pero:
+- "ponle el teléfono 3182675427 y el correo es x@mail.com" → captura "3182675427", ignora el correo
+- No valida que el tipo del valor coincida con el campo: puede poner un teléfono en el campo "empresa.nombre"
+
+**Fix:** Después de extraer el valor, validar el tipo esperado del campo (definido en `json_validator.py`) antes de aplicar la corrección.
+
+---
+
+### BC-5 · `correction_loop.py`: si `campo_detectado` es `None`, pregunta "¿cuál es el valor para 'None'?"
+
+**Archivo:** `backend/correction_loop.py` línea 391
+
+```python
+# Si no se identificó el campo, la pregunta generada contiene literalmente "None"
+pregunta = f"¿cuál es el valor correcto para '{campo_detectado}'?"  # campo_detectado es None
+```
+
+**Fix:** Verificar `if campo_detectado is None` antes de construir la pregunta. Si es None, pedir aclaración: "No entendí qué campo querés corregir. ¿Podés ser más específica? Ejemplo: 'el teléfono es...' o 'la empresa es...'"
+
+---
+
+### BC-6 · `notificador.py`: chunks de mensajes largos pierden formato Markdown
+
+**Archivo:** `backend/notificador.py` líneas 41–54
+
+Telegram tiene límite de 4096 caracteres. El notificador parte el mensaje por líneas, pero solo aplica `parse_mode="Markdown"` al primer chunk. Los siguientes chunks se envían como texto plano — el formato se rompe a mitad del mensaje.
+
+**Fix:** Aplicar `parse_mode="Markdown"` a todos los chunks, y asegurarse de que ningún chunk rompa un bloque de markdown a mitad (e.g., no partir un `*negrita*` entre dos chunks).
+
+---
+
+### BC-7 · `email_reader.py`: mes en mayúsculas no se detecta → citas asignadas a enero
+
+**Archivo:** `backend/email_reader.py` línea 189
+
+```python
+MESES = {"enero": "01", "febrero": "02", ..., "mayo": "05"}
+mes_nombre.lower()  # OK, convierte a minúsculas
+```
+
+Aparentemente está bien, pero si el email de Medifolios envía el mes con tildes distintas o encoding diferente (p.ej. "Mayo" con encoding latin-1 que no se convierte correctamente a lowercase), el lookup falla y retorna `"01"` (enero). Citas en cualquier mes quedan agendadas para enero.
+
+**Fix:** Normalizar el string antes del lookup eliminando acentos: `unicodedata.normalize("NFD", mes_nombre.lower())`.
+
+---
+
+### BC-8 · `email_reader.py`: citas sin teléfono se pierden silenciosamente
+
+**Archivo:** `backend/email_reader.py` línea 194
+
+El regex principal espera exactamente: FECHA HORA, NOMBRE, TELÉFONO, SERVICIO. Si una línea del email de Medifolios no tiene teléfono (campo opcional), el regex no coincide y esa cita se pierde.
+
+**Fix:** Hacer el teléfono opcional en el regex con `(?:\s*,\s*[\d\-\+]+)?`.
+
+---
+
+### BC-9 · `backup_diario.py`: hace backup de SQLite mientras está en uso — puede corromperse
+
+**Archivo:** `backend/backup_diario.py` líneas 20–31
+
+`workflow.db` puede estar siendo escrito por el workflow runner exactamente cuando el backup corre a las 23:00. `tarfile.add()` copia el archivo tal como está en disco, incluyendo el WAL journal, pero si la transacción no estaba committed, el backup contiene datos corruptos.
+
+**Fix:** Usar el comando de SQLite `VACUUM INTO '/tmp/backup.db'` para hacer una copia limpia antes de comprimir. Esto hace flush de WAL y produce un snapshot consistente.
+
+---
+
+### BC-10 · `fusionador.py`: construcción de nombre puede quedar incompleta con strings vacíos
+
+**Archivo:** `backend/fusionador.py` líneas 98–104
+
+```python
+partes = [paciente.get("nombre1"), paciente.get("nombre2"), ...]
+partes_validas = [p for p in partes if p]  # filtra None
+nombre_completo = " ".join(partes_validas)
+```
+
+Si algún campo es `""` (string vacío, no None), no se filtra y el nombre queda con espacios dobles: `"JUAN  DURAN"`. Además, después de construir el nombre, hace `pop()` de los campos individuales — si luego algún código accede a `paciente["nombre1"]`, lanza `KeyError`.
+
+**Fix:** Filtrar también strings vacíos: `[p for p in partes if p and p.strip()]`, y no eliminar los campos originales con `pop()`.
+
+---
+
+### BC-11 · `fusionador.py`: paciente con múltiples siniestros solo conserva el último
+
+**Archivo:** `backend/fusionador.py` líneas 162–169
+
+Si `todos` (lista de todos los siniestros) tiene múltiples entradas y ninguna es tipo "AT", selecciona la primera. El campo `"todos"` luego se hace `pop()` y se pierde. Si el paciente tiene un siniestro activo y uno cerrado, solo llega uno al fusionado.
+
+**Fix:** En lugar de descartar `todos`, guardarlo en `siniestro["historial"]` para que el LLM pueda verlo en el contexto.
+
+---
+
+### BC-12 · `server.py`: stream de chat no se cancela cuando el cliente desconecta
+
+**Archivo:** `backend/server.py` líneas 327–349
+
+```python
+resp = requests.post(..., stream=True, timeout=300)
+for line in resp.iter_lines():
+    yield data
+```
+
+Si Sandra cierra el tab o navega a otra página, el generador sigue consumiendo la respuesta del LLM durante hasta 5 minutos. En un servidor con varios usuarios simultáneos, esto acumula N conexiones abiertas al LLM.
+
+**Fix:** Envolver el stream en un try/except que capture `GeneratorExit` (lanzado cuando FastAPI detecta que el cliente cerró):
+```python
+try:
+    for line in resp.iter_lines():
+        yield data
+except GeneratorExit:
+    resp.close()
+```
+
+---
+
+## 🖥️ Dashboard Frontend
+
+---
+
+### D-1 · Chat: memory leak de intervals — se acumulan con cada audio procesado
+
+**Archivo:** `dashboard/app/chat/page.tsx` líneas 160–255
+
+`iniciarPollingTarea` crea un `setInterval` al inicio de cada workflow. Si el delay cambia (de 3s a 10s), crea un nuevo interval sin garantizar que el anterior fue cancelado. Después de procesar 10 audios, hay 10+ intervals corriendo en paralelo. El navegador se congela.
+
+**Fix:** Guardar la referencia del interval en un `useRef` y hacer `clearInterval(ref.current)` explícitamente antes de crear uno nuevo en cada iteración del polling.
+
+---
+
+### D-2 · Chat: SSE stream no se cancela si Sandra cambia de página
+
+**Archivo:** `dashboard/app/chat/page.tsx` líneas 331–372
+
+`res.body.getReader()` no tiene `AbortController` vinculado. Si Sandra navega a otra página mientras Tomy está respondiendo, el reader sigue activo en background consumiendo memoria.
+
+**Fix:**
+```typescript
+const controller = new AbortController();
+const res = await fetch(url, { signal: controller.signal, ... });
+// En el cleanup del useEffect:
+return () => controller.abort();
+```
+
+---
+
+### D-3 · Chat: links de descarga rotos si `archivo` es null en el historial
+
+**Archivo:** `dashboard/app/chat/page.tsx` líneas 490–504
+
+Si `msg.formatos[i].archivo` es undefined (p.ej. el formato falló al generarse), el link queda como `href="#"` que no hace nada. Sandra ve el botón "Descargar" pero no pasa nada al hacer clic.
+
+**Fix:** Mostrar el botón de descarga solo si `f.archivo` existe; si no, mostrar un badge "No disponible" en rojo.
+
+---
+
+### D-4 · Chat: race condition — Enter puede enviar mensaje doble durante lag
+
+**Archivo:** `dashboard/app/chat/page.tsx` líneas 606–609
+
+```typescript
+onKeyDown={(e) => e.key === "Enter" && enviar()}
+// disabled={enviando}  ← se aplica en el siguiente render
+```
+
+Entre el keydown y el re-render con `disabled=true`, si Sandra presiona Enter dos veces rápido, se envían dos mensajes.
+
+**Fix:** Usar `useRef` para un flag de "enviando" que se actualiza sincrónicamente, no de forma asíncrona a través del estado:
+```typescript
+const enviandoRef = useRef(false);
+const enviar = async () => {
+    if (enviandoRef.current) return;
+    enviandoRef.current = true;
+    // ...
+    enviandoRef.current = false;
+};
+```
+
+---
+
+### D-5 · subir-audio: sin validación de tipo ni tamaño en el frontend
+
+**Archivo:** `dashboard/app/subir-audio/page.tsx` líneas 85, 103
+
+El input dice `accept="audio/*,.m4a,.mp3,.wav"` pero es solo visual — el navegador no lo impone. La página incluso dice "sin límite de tamaño" pero el backend rechaza >200MB. Sandra puede subir un video de 500MB y solo descubre el error después de esperar la carga completa.
+
+**Fix:**
+```typescript
+if (!file.type.startsWith("audio/")) {
+    setError("Solo se aceptan archivos de audio (.mp3, .m4a, .wav)");
+    return;
+}
+if (file.size > 200 * 1024 * 1024) {
+    setError("El archivo es demasiado grande. Máximo 200 MB.");
+    return;
+}
+```
+
+---
+
+### D-6 · formatos: cambiar de paciente no resetea el filtro de formato seleccionado
+
+**Archivo:** `dashboard/app/formatos/page.tsx` líneas 78–82
+
+```typescript
+const seleccionarPaciente = (cc: string) => {
+    setPacienteSeleccionado(cc);
+    cargarFormatos(cc);
+    setFiltroFormato("");  // ← resetea el filtro
+};
+```
+
+Parece que sí resetea, pero si el componente de filtro tiene su propio estado interno (no controlado), puede quedar en el valor anterior. Verificar que el filtro sea completamente controlado.
+
+---
+
+### D-7 · auth.ts: sin refresh automático de sesión expirada
+
+**Archivo:** `dashboard/lib/auth.ts` líneas 25–35
+
+Si la sesión expira mientras Sandra trabaja (token de 30 días, improbable pero posible), los endpoints devuelven 401. El frontend hace las llamadas silenciosamente sin redirigir al login — las páginas muestran datos vacíos o errores genéricos.
+
+**Fix:** En el wrapper de fetch, si cualquier respuesta es 401, redirigir automáticamente a `/login`.
+
+---
+
+### D-8 · archivos: sincronización con GitHub reporta éxito aunque `git push` falle
+
+**Archivo:** `dashboard/app/archivos/page.tsx` línea 106  
+**Archivo:** `backend/server.py` endpoint `POST /api/archivos/sync`
+
+El frontend muestra "Sincronizado con GitHub" si `data.ok` es True. Pero el backend puede retornar `ok: True` aunque `git push` haya fallado si el error va a stderr y el código solo verifica el exit code.
+
+**Fix en backend:** Verificar explícitamente el returncode de `git push` y capturar stderr. Si es distinto de 0, retornar `ok: False` con el mensaje del error.
+
+---
+
+### D-9 · pacientes: typo en mensaje de error ("en el servidor en el servidor")
+
+**Archivo:** `dashboard/app/pacientes/page.tsx` línea 43
+
+```typescript
+setError("No se pudo conectar con el servidor en el servidor.");
+// ↑ "en el servidor" está duplicado
+```
+
+---
+
+### D-10 · hoy/paciente: intervals de auto-refresh no se limpian al desmontar rápido
+
+**Archivos:** `dashboard/app/hoy/page.tsx` línea 42, `dashboard/app/paciente/[cc]/page.tsx` líneas 71–72
+
+Si Sandra navega rápidamente entre `/hoy` y `/paciente/CC`, los intervals de refresh anterior pueden quedar activos brevemente. En la mayoría de casos React los limpia en el return del useEffect, pero si el unmount es muy rápido puede haber una llamada extra.
+
+**Fix:** Verificar que todos los `setInterval` tengan su correspondiente `return () => clearInterval(id)` en el useEffect.
+
+---
+
+## 🚀 Deployment y Configuración
+
+---
+
+### DEP-1 · `.env` ESTÁ RASTREADO EN GIT — credenciales expuestas en el historial
+
+**Archivo:** `.env`, `.gitignore`, historial de git
+
+El commit `d50c0bf` agregó `.env` de vuelta al repositorio explícitamente. El archivo contiene credenciales activas: Deepgram, Telegram, OpenCode, Gmail, Medifolios, Positiva, AUTH_SECRET.
+
+**Fix — en orden:**
+1. `git rm --cached .env` + commit
+2. Verificar que `.env` esté en `.gitignore`
+3. Dado que las credenciales ya están en el historial, **rotar todas las keys**:
+   - Generar nuevo `DEEPGRAM_API_KEY`
+   - Revocar y regenerar `OPENCODE_GO_API_KEY`
+   - Regenerar `TELEGRAM_BOT_TOKEN`
+   - Cambiar contraseñas de Medifolios y Positiva
+   - Revocar `GMAIL_APP_PASSWORD` y generar uno nuevo
+4. Limpiar el historial: `git filter-repo --path .env --invert-paths`
+
+---
+
+### DEP-2 · `storage/docs/` y `storage/data/` con datos de pacientes reales están en git
+
+**Archivo:** `.gitignore`, `storage/`
+
+Los directorios `storage/docs/`, `storage/data/`, `storage/pdfs/` contienen documentos clínicos con CC, teléfono, dirección y siniestro de Maribel Fuentes (CC 36280228). Están rastreados por git.
+
+**Fix:**
+```bash
+git rm -r --cached storage/docs/ storage/data/ storage/pdfs/
+echo "storage/docs/" >> .gitignore
+echo "storage/data/" >> .gitignore
+echo "storage/pdfs/" >> .gitignore
+git commit -m "Remove patient data from git tracking"
+```
+
+---
+
+### DEP-3 · `docker-compose.yml` usa variables de entorno que no existen
+
+**Archivo:** `docker-compose.yml`
+
+| Variable en compose | Realidad en .env | Problema |
+|---------------------|-----------------|----------|
+| `OPENROUTER_API_KEY` | No existe | Debería ser `OPENCODE_GO_API_KEY` |
+| `MEDIFOLIOS_PASS` | No existe | Debería ser `MEDIFOLIOS_PASSWORD` |
+| `POSITIVA_PASS` | No existe | Debería ser `POSITIVA_PASSWORD` |
+
+Además no mapea: `TOMY_COMPLETO_ENABLED`, `WORKFLOW_DB_PATH`, `AUTH_PIN`, `AUTH_SECRET`, `OPENCODE_GO_BASE_URL`. El servicio `browser-use` usa `python:3.11-slim` sin instalar Playwright.
+
+**Fix:** Sincronizar `docker-compose.yml` con `.env` actual. Agregar todos los volúmenes necesarios para `storage/workflow.db`.
+
+---
+
+### DEP-4 · `start.sh` intenta arrancar el dashboard sin hacer `npm run build` primero
+
+**Archivo:** `start.sh` líneas 23–26
+
+```bash
+cd dashboard && npx next start -p 3000 &
+```
+
+`next start` requiere que `.next/` exista (generado por `npm run build`). Si no se hizo build, arranca con el build anterior o falla. El script no lo verifica ni lo ejecuta.
+
+**Fix:**
+```bash
+cd dashboard
+if [ ! -d ".next" ] || [ "$(find . -name '*.tsx' -newer .next -not -path './node_modules/*' | head -1)" ]; then
+    echo "Building dashboard..."
+    npm run build
+fi
+npx next start -p 3000 &
+```
+
+---
+
+### DEP-5 · `start-wsl.sh` asume que Docker está corriendo y que hay un contenedor Hermes
+
+**Archivo:** `start-wsl.sh`
+
+```bash
+sudo docker exec hermes-... comando
+```
+
+Si Docker no está instalado, no está corriendo, o el contenedor no existe, el script falla con error poco descriptivo.
+
+**Fix:** Verificar dependencias al inicio del script:
+```bash
+command -v docker >/dev/null 2>&1 || { echo "Docker no instalado"; exit 1; }
+docker info >/dev/null 2>&1 || { echo "Docker no está corriendo"; exit 1; }
+```
+
+---
+
+### DEP-6 · `.env.example` incompleto — 6 variables críticas sin documentar
+
+**Archivo:** `.env.example`
+
+Variables que usa el código pero no están en `.env.example`:
+
+| Variable | Usada en | Por qué es crítica |
+|----------|----------|-------------------|
+| `AUTH_PIN` | `auth_simple.py:19` | Sin ella el servidor no arranca |
+| `AUTH_SECRET` | `auth_simple.py:15` | Sin ella los tokens son inseguros |
+| `DASHBOARD_URL` | Notificaciones Telegram | URLs en mensajes incorrectas |
+| `CORS_ORIGINS` | `server.py:43` | Dashboard no puede conectar |
+| `WORKSPACE_DIR` | `server.py`, `chat_handler.py` | Sin ella no encuentra archivos de Sandra |
+| `OPENCODE_GO_BASE_URL` | `chat_handler.py:22` | Usa fallback hardcodeado |
+
+**Fix:** Agregar todas al `.env.example` con valores de ejemplo y comentarios de cómo obtenerlas.
+
+---
+
+### DEP-7 · `TOMY_COMPLETO_ENABLED` y `LLM_MODEL_SINTESIS` difieren entre `.env` y `.env.example`
+
+**Archivos:** `.env`, `.env.example`
+
+| Variable | `.env` (producción) | `.env.example` | Riesgo |
+|----------|---------------------|----------------|--------|
+| `TOMY_COMPLETO_ENABLED` | `true` | `false` | Nuevo deploy arranca con pipeline desactivado |
+| `LLM_MODEL_SINTESIS` | `deepseek-v4-flash` | `deepseek-v4-pro` | Modelo distinto sin saberlo |
+
+**Fix:** `.env.example` debe documentar el valor recomendado para producción, no el de desarrollo.
+
+---
+
+### DEP-8 · `playwright install` no se ejecuta automáticamente post-instalación
+
+**Archivo:** `backend/requirements.txt`
+
+`playwright>=1.42.0` instala el paquete Python pero NO los browsers (Chromium, Firefox). Hay que ejecutar `playwright install` manualmente. Si no se hace, todos los extractores fallan con `playwright._impl._errors.Error: Executable doesn't exist`.
+
+**Fix:** Agregar al final de `start.sh` o crear un `setup.sh`:
+```bash
+python -m playwright install chromium --with-deps
+```
+
+---
+
+### DEP-9 · `puente_docker.py` documentado en CLAUDE.md pero no existe
+
+**Archivos:** `CLAUDE.md` línea 43, `backend/puente_docker.py`
+
+CLAUDE.md lista `puente_docker.py` como módulo activo con 192 líneas, pero el archivo no existe en el repositorio. Si algún componente lo intenta importar, falla con `ModuleNotFoundError`.
+
+**Fix:** Eliminar la referencia de CLAUDE.md o restaurar el archivo si era necesario.
+
+---
+
+### DEP-10 · `start.sh`: health check débil con sleep fijo, mata procesos de otros usuarios
+
+**Archivo:** `start.sh` líneas 10–11, 26–31
+
+```bash
+fuser -k 8000/tcp 2>/dev/null  # mata CUALQUIER proceso en ese puerto, no solo del usuario
+sleep 5                         # espera fija, no health check real
+curl -s --max-time 3 ...        # un solo intento, sin reintentos
+```
+
+**Fix:**
+```bash
+# Matar solo procesos propios
+lsof -ti:8000 | xargs kill -9 2>/dev/null
+
+# Health check con reintentos
+for i in $(seq 1 10); do
+    curl -sf http://localhost:8000/api/health && break
+    sleep 2
+done
+```
+
+---
+
 ## 🗑️ Código Muerto
 
 Estos 17 archivos existen en `backend/` pero no son importados por ningún otro módulo activo. Crean confusión, hacen que las revisiones pasen de largo errores reales, y agrandan el repo sin valor.
@@ -918,6 +1731,16 @@ Estos 17 archivos existen en `backend/` pero no son importados por ningún otro 
 
 ## 📋 Orden de Implementación
 
+### ⚠️ URGENTE — Hacer ahora, antes de cualquier otra cosa
+
+Credenciales de servicios reales y datos de pacientes están en el historial público de git.
+
+| # | Item | Acción concreta |
+|---|------|-----------------|
+| U-1 | **DEP-1** `.env` fuera de git + rotar TODAS las credenciales | `git rm --cached .env` → commit → rotar Deepgram, Telegram, OpenCode, Gmail, portales |
+| U-2 | **DEP-2** `storage/docs/`, `storage/data/`, `storage/pdfs/` fuera de git | `git rm -r --cached storage/docs/ storage/data/ storage/pdfs/` → agregar a `.gitignore` |
+| U-3 | **DEP-1** Limpiar historial con `git filter-repo` | Sin esto las credenciales siguen accesibles en commits anteriores |
+
 ### Fase 0 — El chat debe mostrar qué está pasando (sin esto nada es testeable)
 
 Sin progreso visible, no se puede saber si el resto de los fixes funciona.
@@ -925,64 +1748,108 @@ Sin progreso visible, no se puede saber si el resto de los fixes funciona.
 | # | Item | Por qué primero |
 |---|------|-----------------|
 | 0.1 | **P-1** Intervalo adaptativo de polling (3s pasos rápidos, 10s lento) | El usuario ve cada paso real |
-| 0.2 | **P-4** Polling para en cualquier estado final, no solo los conocidos | No loops infinitos |
-| 0.3 | **P-3** `lastIndexOf` en lugar de `split` para editar el progreso | El mensaje no se rompe |
-| 0.4 | **P-2** `catch` con contador de errores consecutivos | Sandra sabe si el servidor cayó |
-| 0.5 | **P-6** Timeout por paso en `workflow_runner` | El workflow no se congela forever |
-| 0.6 | **P-7** WAL mode + timeout=30 en SQLite | Evita locks bajo carga |
-| 0.7 | **P-8** Hardcoded `/9` → `/10` | Mensaje de error correcto |
-| 0.8 | **P-9** Frontend conoce `listo_con_advertencias` y `listo_incompleto` | Estados nuevos no rompen el chat |
+| 0.2 | **D-1** `useRef` para el interval del polling — evitar memory leak | Sin esto acumula intervals con cada audio |
+| 0.3 | **P-4** Polling para en cualquier estado final, no solo los conocidos | No loops infinitos |
+| 0.4 | **P-3** `lastIndexOf` en lugar de `split` para editar el progreso | El mensaje no se rompe |
+| 0.5 | **P-2** `catch` con contador de errores consecutivos | Sandra sabe si el servidor cayó |
+| 0.6 | **P-6** Timeout por paso en `workflow_runner` | El workflow no se congela forever |
+| 0.7 | **P-7** WAL mode + timeout=30 en SQLite | Evita locks bajo carga |
+| 0.8 | **P-8** Hardcoded `/9` → `/10` | Mensaje de error correcto |
+| 0.9 | **P-9** Frontend conoce `listo_con_advertencias` y `listo_incompleto` | Estados nuevos no rompen el chat |
 
 ### Fase 1 — Hacer que el sistema genere datos reales (no inventados)
 
 | # | Item | Por qué primero |
 |---|------|-----------------|
-| 1 | **C-5** Crear tabla `chat_history` | Desbloquea el borrado y el historial |
-| 2 | **C-1** Reescribir `resolver_paciente` con lógica nuevo/cache/refresh | Sin esto el sistema trabaja con datos vacíos |
-| 3 | **C-2** `sintetizar_maestro` retorna `ok: False` si JSON es `None` | Sin esto el pipeline sigue con nulos |
-| 4 | **A-1** Pasos 1–4 del workflow validan output mínimo | Propaga datos reales o para con error claro |
-| 5 | **C-8** Cancelar tasks activos antes de borrar paciente | Elimina el fantasma |
-| 6 | **A-11** Frontend verifica `response.ok` en borrado | Usuario ve errores reales |
+| 1.1 | **C-5** Crear tabla `chat_history` | Desbloquea el borrado y el historial |
+| 1.2 | **BC-1** Rechazar segundo upload del mismo CC con 409 | Sin esto dos threads sobreescriben el mismo JSON |
+| 1.3 | **C-1** Reescribir `resolver_paciente` con lógica nuevo/cache/refresh | Sin esto el sistema trabaja con datos vacíos |
+| 1.4 | **X-1** Medifolios: unir `nombre1+nombre2+apellido1+apellido2` → `nombre` | Sin esto el paciente llega sin nombre al LLM |
+| 1.5 | **X-2** Positiva: parsear tabla de siniestros como lista | Pacientes con múltiples siniestros pierden datos |
+| 1.6 | **C-2** `sintetizar_maestro` retorna `ok: False` si JSON es `None` | Sin esto el pipeline sigue con nulos |
+| 1.7 | **A-1** Pasos 1–4 del workflow validan output mínimo | Propaga datos reales o para con error claro |
+| 1.8 | **C-8** Cancelar tasks activos antes de borrar paciente | Elimina el fantasma |
+| 1.9 | **A-11** Frontend verifica `response.ok` en borrado | Usuario ve errores reales |
 
 ### Fase 2 — Hacer que los documentos generados sean correctos
 
 | # | Item | Por qué |
 |---|------|---------|
-| 7 | **C-3** `generar_formatos` es `ok: True` solo si todos generaron | No entregar set incompleto |
-| 8 | **C-4** `qa_formatos` realmente bloquea con `[VERIFICAR]` críticos | QA que funciona |
-| 9 | **C-7** Firma faltante = error explícito | Documentos válidos legalmente |
-| 10 | **A-2** Chunks fallidos marcados y comunicados al LLM | Transcripción honesta |
-| 11 | **A-3** Discrepancias de portales visibles en Telegram | Sandra puede verificar |
-| 12 | **M-2** Campos críticos vs secundarios en validación | QA con prioridades |
+| 2.1 | **G-1** Truncar texto largo + normalizar `\n` en celdas | El bug que viste — celdas alargadas |
+| 2.2 | **G-2** Arreglar `format_selector.py` bug de tupla Python | Prueba de Trabajo nunca se detectaba |
+| 2.3 | **G-3** Loguear excepciones silenciadas en índices de tabla | Saber cuándo un campo no se escribió |
+| 2.4 | **G-4** Verificar retorno de `_convertir_a_pdf()` | No hay PDF sin saberlo |
+| 2.5 | **C-3** `generar_formatos` es `ok: True` solo si todos generaron | No entregar set incompleto |
+| 2.6 | **C-4** `qa_formatos` realmente bloquea con `[VERIFICAR]` críticos | QA que funciona |
+| 2.7 | **C-7** Firma faltante = error explícito | Documentos válidos legalmente |
+| 2.8 | **G-8** Deepgram: audio en silencio = error explícito | No inventar datos de un audio mudo |
+| 2.9 | **X-3** RHI de Positiva: retornar `_error` en vez de `{}` | El orquestador sabe que falló |
+| 2.10 | **X-4** Siniestro no encontrado en agenda = buscar fallback en HC | No perder el siniestro |
+| 2.11 | **A-2** Chunks fallidos marcados y comunicados al LLM | Transcripción honesta |
+| 2.12 | **A-3** Discrepancias de portales visibles en Telegram | Sandra puede verificar |
+| 2.13 | **M-2** Campos críticos vs secundarios en validación | QA con prioridades |
+| 2.14 | **BC-4** `correction_loop`: validar tipo del campo antes de aplicar | No pone un teléfono en el campo empresa |
+| 2.15 | **BC-5** `correction_loop`: campo `None` muestra mensaje de aclaración | No aparece "None" en el chat |
+| 2.16 | **G-6** Unificar `[VERIFICAR]` vs `""` para campos vacíos | QA encuentra todos los vacíos |
 
 ### Fase 3 — Robustez y recuperación ante fallos
 
 | # | Item | Por qué |
 |---|------|---------|
-| 13 | **C-9** Renombrar `hermes.ts` → `api.ts` | Limpieza arquitectural |
-| 14 | **A-10** Context managers en SQLite | Evita database lock |
-| 15 | **A-14** Limpiar tasks en limbo al arrancar | No fantasmas en el dashboard |
-| 16 | **A-6** Sesión Playwright con backup antes de sobreescribir | No perder sesiones |
-| 17 | **A-7** Timeout Positiva a 60s + retry | Extracción que funciona |
-| 18 | **M-11** APScheduler con job store persistente | Crons sobreviven reinicios |
+| 3.1 | **C-9** Renombrar `hermes.ts` → `api.ts` | Limpieza arquitectural |
+| 3.2 | **A-10** Context managers en SQLite | Evita database lock |
+| 3.3 | **A-14** Limpiar tasks en limbo al arrancar | No fantasmas en el dashboard |
+| 3.4 | **X-8** / **A-6** Backup de sesión Playwright antes de sobreescribir | No perder sesiones válidas |
+| 3.5 | **X-7** / **A-7** Timeout Positiva a 60s + 2 reintentos | Extracción que funciona en conexión lenta |
+| 3.6 | **X-5** Comparación de nombres con similitud de Jaccard | Menos alertas de discrepancia falsas |
+| 3.7 | **X-6** CIE-10: buscar por selector CSS, no regex sobre todo el body | Diagnóstico correcto |
+| 3.8 | **BC-2** `max()` sobre fechas string → `datetime.strptime` | Selecciona el archivo realmente más reciente |
+| 3.9 | **BC-3** Inicializar `resp = None` antes del try en `chat_handler` | Evita `UnboundLocalError` |
+| 3.10 | **BC-6** Telegram chunks: `parse_mode` en todos, no solo el primero | Formato correcto en mensajes largos |
+| 3.11 | **BC-7** `email_reader`: normalizar encoding del mes antes de lookup | Citas en mes correcto |
+| 3.12 | **BC-8** `email_reader`: teléfono opcional en regex | No perder citas sin teléfono |
+| 3.13 | **BC-9** `backup_diario`: `VACUUM INTO` en lugar de copiar archivo en uso | Backups no corruptos |
+| 3.14 | **BC-10** `fusionador`: filtrar `""` además de `None` en construcción de nombre | No espacios dobles en nombre |
+| 3.15 | **BC-11** `fusionador`: guardar historial de siniestros, no descartarlo | LLM ve historial completo |
+| 3.16 | **BC-12** Stream de chat: capturar `GeneratorExit` y cerrar conexión LLM | No acumular conexiones abiertas |
+| 3.17 | **M-11** APScheduler con job store persistente | Crons sobreviven reinicios |
+| 3.18 | **P-5** `paso_completado` separado de `paso_actual` en task_db | Estados de paso más precisos |
+| 3.19 | **D-2** `AbortController` en SSE del chat | No reader zombies al cambiar de página |
+| 3.20 | **D-4** `useRef` para flag de envío — evitar Enter doble | No mensajes duplicados |
 
 ### Fase 4 — Seguridad
 
 | # | Item | Por qué |
 |---|------|---------|
-| 19 | **C-6** `.env` fuera de git + rotar credenciales | Urgente si el repo es público |
-| 20 | **M-7** Cookie `secure` + `samesite` | Sesiones seguras |
-| 21 | **M-8** PIN sin fallback a 1234 | No acceso por default |
-| 22 | **M-10** Validar formato de CC | Inputs maliciosos |
+| 4.1 | **C-6** `.env` fuera de git + rotar credenciales (si aún no se hizo en U-1) | Urgente si el repo es público |
+| 4.2 | **M-7** Cookie `secure` + `samesite` | Sesiones seguras en HTTPS |
+| 4.3 | **M-8** PIN sin fallback a 1234 | No acceso por default |
+| 4.4 | **M-10** Validar formato de CC | Inputs maliciosos |
+| 4.5 | **DEP-6** Completar `.env.example` con las 6 variables faltantes | Nuevo deploy no arranca ciego |
+| 4.6 | **DEP-7** `.env.example` con valores recomendados de producción | No diferencias silenciosas entre entornos |
+| 4.7 | **D-7** Redirigir a `/login` en cualquier 401 | No páginas vacías con sesión expirada |
+| 4.8 | **D-3** Links de descarga: ocultar si `archivo` es null | No botones que no hacen nada |
 
-### Fase 5 — Calidad y mantenimiento
+### Fase 5 — Setup, deployment y calidad
 
 | # | Item | Por qué |
 |---|------|---------|
-| 23 | **🗑️** Auditar y eliminar archivos muertos | Código claro |
-| 24 | **B-1** Hardcoding a `.env` | Fácil configurar para otros casos |
-| 25 | **A-4** Patrones de detección de estado del caso | Menos falsos positivos |
-| 26 | **M-4** Normalizar CC en búsqueda de notas | Encuentra todas las notas |
+| 5.1 | **DEP-3** Sincronizar `docker-compose.yml` con `.env` actual | Dev no arranca con variables faltantes |
+| 5.2 | **DEP-4** `start.sh`: hacer build si no existe `.next` | No arrancar dashboard roto |
+| 5.3 | **DEP-5** `start-wsl.sh`: verificar Docker antes de usar | Error descriptivo si falta |
+| 5.4 | **DEP-8** `setup.sh` con `playwright install chromium` | Sin esto Playwright falla en deploy limpio |
+| 5.5 | **DEP-9** Actualizar CLAUDE.md — `puente_docker.py` no existe | Documentación que miente |
+| 5.6 | **DEP-10** `start.sh`: health check con reintentos, no sleep fijo | Arranque robusto |
+| 5.7 | **D-5** Validar tipo y tamaño de archivo en `/subir-audio` antes de cargar | No esperar 5 min para enterarse del error |
+| 5.8 | **D-8** `archivos/sync`: verificar returncode de `git push` | No reportar éxito si falló |
+| 5.9 | **D-9** Typo en mensaje de error ("en el servidor en el servidor") | Calidad del texto |
+| 5.10 | **D-10** Verificar que todos los intervals tienen `clearInterval` en cleanup | No leaks al navegar rápido |
+| 5.11 | **🗑️** Auditar y eliminar archivos muertos | Código claro |
+| 5.12 | **B-1** Hardcoding a `.env` | Fácil configurar para otros casos |
+| 5.13 | **A-4** Patrones de detección de estado del caso | Menos falsos positivos |
+| 5.14 | **M-4** Normalizar CC en búsqueda de notas | Encuentra todas las notas |
+| 5.15 | **B-3** Backup: notificar a Manu por Telegram si falla | Sin puntos ciegos en backups |
+| 5.16 | **G-7** Comparar templates actuales contra `.bak` | Detectar si índices G-3 están desactualizados |
 
 ---
 
@@ -1002,4 +1869,4 @@ git check-ignore -v .env
 
 ---
 
-*Plan v4 — 2026-05-23 — 9 críticos · 14 altos · 12 medios · 6 bajos · 9 bugs de chat/progreso · 17 archivos muertos — Total: 50+ items*
+*Plan v6 — 2026-05-24 — 9 críticos · 14 altos · 12 medios · 6 bajos · 9 chat/progreso · 10 generador docs · 8 extractores Playwright · 12 backend core · 10 dashboard frontend · 10 deployment/config · 17 archivos muertos — Total: 117 items*

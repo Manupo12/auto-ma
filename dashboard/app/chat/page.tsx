@@ -65,8 +65,10 @@ export default function ChatPage() {
   }]);
   const [input, setInput] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const enviandoRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const [pacienteCc, setPacienteCc] = useState("");
   const [pacientesHistorial, setPacientesHistorial] = useState<{cc: string; mensajes: number; ultimo: string}[]>([]);
@@ -154,6 +156,7 @@ export default function ChatPage() {
   useEffect(() => {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
+      abortRef.current?.abort();
     };
   }, []);
 
@@ -163,13 +166,15 @@ export default function ChatPage() {
 
     const poll = async () => {
       try {
-        const res = await fetch(`${API}/api/tasks/${taskId}`);
+        const res = await fetch(`${API}/api/tasks/${taskId}`, {
+          signal: AbortSignal.timeout(15000),
+        });
         const data = await res.json();
         const task = data.task;
         erroresConsecutivos = 0;
 
         if (ESTADOS_FINALES.includes(task.estado) || task.estado === "listo") {
-          clearInterval(timer!);
+          clearInterval(pollingRef.current!);
           const formatos = task.resultado?.formatos_generados || [];
           const verificacion = task.resultado?.verificacion;
           const discrepancias = task.resultado?.discrepancias || [];
@@ -205,14 +210,14 @@ export default function ChatPage() {
             formatos: formatos,
           }]);
         } else if (task.estado?.startsWith("error")) {
-          clearInterval(timer!);
+          clearInterval(pollingRef.current!);
           setMensajes((prev) => [...prev, {
             rol: "asistente",
             contenido: `Hubo un problema en el paso ${task.paso_actual}/10: ${(task.error || "error desconocido").slice(0, 200)}. Intentamos de nuevo?`,
             timestamp: new Date().toISOString(),
           }]);
         } else if (task.estado === "esperando_datos") {
-          clearInterval(timer!);
+          clearInterval(pollingRef.current!);
           setMensajes((prev) => [...prev, {
             rol: "asistente",
             contenido: `Procese el audio pero faltan datos: ${(task.resultado?.campos_faltantes || []).join(", ")}`,
@@ -235,13 +240,13 @@ export default function ChatPage() {
 
           // P-1: intervalo adaptativo
           const delay = task.paso_actual <= 4 ? 3000 : 10000;
-          clearInterval(timer!);
-          timer = setInterval(poll, delay);
+          clearInterval(pollingRef.current!);
+          pollingRef.current = setInterval(poll, delay);
         }
       } catch {
         erroresConsecutivos++;
         if (erroresConsecutivos >= 3) {
-          clearInterval(timer!);
+          clearInterval(pollingRef.current!);
           setMensajes((prev) => [...prev, {
             rol: "asistente",
             contenido: "No puedo contactar al servidor. Revisa que el backend este corriendo en localhost:8000.",
@@ -251,7 +256,8 @@ export default function ChatPage() {
       }
     };
 
-    let timer: ReturnType<typeof setInterval> | null = setInterval(poll, 3000);
+    clearInterval(pollingRef.current!);
+    pollingRef.current = setInterval(poll, 3000);
   }, []);
 
   const handleAudioChat = async (file: File) => {
@@ -302,7 +308,8 @@ export default function ChatPage() {
   };
 
   const enviar = async () => {
-    if (!input.trim() || enviando) return;
+    if (!input.trim() || enviandoRef.current) return;
+    enviandoRef.current = true;
     const mensaje = input.trim();
     setInput("");
     setEnviando(true);
@@ -320,12 +327,16 @@ export default function ChatPage() {
     };
     setMensajes([...historialConUser, assistantPlaceholder]);
 
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+      timeoutId = setTimeout(() => abortRef.current?.abort(), 300000);
       const res = await fetch(`${API}/api/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mensaje, historial: historialConUser.slice(-10) }),
-        signal: AbortSignal.timeout(300000),
+        signal: abortRef.current.signal,
       });
 
       const reader = res.body!.getReader();
@@ -380,6 +391,8 @@ export default function ChatPage() {
         return n;
       });
     } finally {
+      clearTimeout(timeoutId);
+      enviandoRef.current = false;
       setEnviando(false);
     }
   };
@@ -490,15 +503,22 @@ export default function ChatPage() {
                 {msg.formatos && msg.formatos.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {msg.formatos.map((f, fi) => (
-                      <a
-                        key={fi}
-                        href={f.archivo ? `/api/download/${encodeURIComponent(f.archivo.split("/").pop() || "")}` : "#"}
-                        download
-                        className="text-xs text-blue-600 hover:underline block"
-                      >
-                        <FileText size={10} className="inline mr-1" />
-                        {f.formato || f.archivo?.split("/").pop()}
-                      </a>
+                      f.archivo ? (
+                        <a
+                          key={fi}
+                          href={`/api/download/${encodeURIComponent(f.archivo.split("/").pop() || "")}`}
+                          download
+                          className="text-xs text-blue-600 hover:underline block"
+                        >
+                          <FileText size={10} className="inline mr-1" />
+                          {f.formato || f.archivo.split("/").pop()}
+                        </a>
+                      ) : (
+                        <span key={fi} className="text-xs text-slate-400 block">
+                          <FileText size={10} className="inline mr-1" />
+                          {f.formato || "No disponible"}
+                        </span>
+                      )
                     ))}
                   </div>
                 )}

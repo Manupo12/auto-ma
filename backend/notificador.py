@@ -26,38 +26,57 @@ STORAGE_DIR = Path(os.getenv("STORAGE_DIR", "./storage"))
 
 
 def enviar_telegram(mensaje: str) -> bool:
-    """Envía un mensaje por Telegram a Sandra."""
+    """Envia un mensaje por Telegram a Sandra."""
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️  Telegram no configurado. Falta TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID")
+        print("Telegram no configurado. Falta TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID")
         return False
     
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     
-    # Partir mensajes largos
-    lineas = mensaje.split("\n")
+    # Partir mensajes largos en parrafos, evitando cortar bloques markdown
+    MAX_LEN = 4000
+    parrafos = mensaje.split("\n\n")
     chunks = []
     chunk = ""
-    for linea in lineas:
-        if len(chunk) + len(linea) + 1 > 4000:
-            chunks.append(chunk)
-            chunk = linea
+    for parrafo in parrafos:
+        if len(chunk) + len(parrafo) + 2 > MAX_LEN:
+            if chunk:
+                chunks.append(chunk)
+            chunk = parrafo
         else:
-            chunk = chunk + "\n" + linea if chunk else linea
+            chunk = chunk + "\n\n" + parrafo if chunk else parrafo
     if chunk:
         chunks.append(chunk)
+
+    # Si un chunk aun excede MAX_LEN, partir por lineas respetando markdown
+    chunks_final = []
+    for c in chunks:
+        if len(c) <= MAX_LEN:
+            chunks_final.append(c)
+            continue
+        lineas = c.split("\n")
+        sub = ""
+        for linea in lineas:
+            if len(sub) + len(linea) + 1 > MAX_LEN:
+                chunks_final.append(sub)
+                sub = linea
+            else:
+                sub = sub + "\n" + linea if sub else linea
+        if sub:
+            chunks_final.append(sub)
     
-    for i, chunk in enumerate(chunks):
+    for chunk in chunks_final:
         try:
             resp = requests.post(url, json={
                 "chat_id": TELEGRAM_CHAT_ID,
                 "text": chunk,
-                "parse_mode": "Markdown" if i == 0 else None,
+                "parse_mode": "Markdown",
             }, timeout=10)
             if resp.status_code != 200:
-                print(f"❌ Telegram error: {resp.text}")
+                print(f"Telegram error: {resp.text}")
                 return False
         except Exception as e:
-            print(f"❌ Telegram fallo: {e}")
+            print(f"Telegram fallo: {e}")
             return False
     
     return True

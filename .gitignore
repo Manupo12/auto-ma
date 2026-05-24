@@ -1,4 +1,5 @@
 # Secretos y credenciales
+.env
 credentials.*
 secrets.*
 
@@ -37,8 +38,12 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
-# NOTA: storage/ YA NO está excluido — los docs, data, reports y templates
-# son parte del contexto del sistema y Claude Code los necesita.
+# Datos de pacientes reales (NO rastrear en git)
+storage/docs/
+storage/data/
+storage/pdfs/
+
+# storage permitido: reports/, templates/ (parte del contexto sin datos de pacientes)
 
 # Fase A — sesiones browser y evidencia
 storage/playwright_sessions/

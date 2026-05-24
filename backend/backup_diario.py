@@ -6,12 +6,20 @@ import os
 import sys
 import tarfile
 import shutil
+import sqlite3
 from pathlib import Path
 from datetime import datetime
 
 
-def _log(msg: str):
-    print(f"[BACKUP {datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
+def _vacuumar_db(db_path: Path, temp_dir: Path) -> Path:
+    """Copia limpia via VACUUM INTO para evitar inconsistencia con DB en uso."""
+    respaldo = temp_dir / db_path.name
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(f"VACUUM INTO '{respaldo}'")
+    finally:
+        conn.close()
+    return respaldo
 
 
 def crear_backup() -> Path:
@@ -24,11 +32,29 @@ def crear_backup() -> Path:
 
     excluir = {"backups", "audios_temp", "workflow_audios", "playwright_sessions", "screenshots"}
 
-    with tarfile.open(archivo, "w:gz") as tar:
-        for item in storage.iterdir():
-            if item.name in excluir:
+    # Vacuumar todos los .db antes de backupear
+    temp_dir = backup_dir / ".tmp_vacuum"
+    temp_dir.mkdir(exist_ok=True)
+    db_replacements = {}
+    try:
+        for item in storage.rglob("*.db"):
+            if any(p.name in excluir for p in item.parents):
                 continue
-            tar.add(item, arcname=item.name)
+            try:
+                db_replacements[str(item)] = _vacuumar_db(item, temp_dir)
+            except Exception as e:
+                _log(f"aviso: no se pudo vacuumar {item.name}: {e}")
+
+        with tarfile.open(archivo, "w:gz") as tar:
+            for item in storage.iterdir():
+                if item.name in excluir:
+                    continue
+                tar.add(item, arcname=item.name)
+            for orig_str, vac_path in db_replacements.items():
+                arcname = str(Path(orig_str).relative_to(storage))
+                tar.add(vac_path, arcname=arcname)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     tamano_mb = archivo.stat().st_size / 1024 / 1024
     _log(f"backup OK: {archivo.name} ({tamano_mb:.1f} MB)")

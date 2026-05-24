@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+
 /**
  * API Route para subir audio y enviarlo a Deepgram vía Hermes.
  * El dashboard envía el archivo aquí, y esta ruta lo reenvía al backend de Hermes.
@@ -22,7 +24,7 @@ export async function POST(request: NextRequest) {
     backendFormData.append("audio", audio);
     backendFormData.append("paciente_cc", paciente_cc);
 
-    const backendResponse = await fetch("http://localhost:8000/api/upload-audio", {
+    const backendResponse = await fetch(`${BACKEND_URL}/api/upload-audio`, {
       method: "POST",
       body: backendFormData,
     });

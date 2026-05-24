@@ -156,7 +156,7 @@ def validar_semantica(datos: dict, origen: str = "") -> Tuple[bool, List[Resulta
         elif match and not extra_ok:
             confianza = 50
             mensaje = f"⚠️ Formato OK pero validación extra falló — {reglas['descripcion']}"
-            es_valido = True
+            es_valido = False
             es_sospechoso = True
         else:
             confianza = 20
@@ -245,7 +245,7 @@ class Custodia:
             ],
             "hash_documento": hashlib.sha256(
                 json.dumps([(e.campo, e.valor) for e in self.entradas], sort_keys=True).encode()
-            ).hexdigest()[:16],
+            ).hexdigest(),
         }
     
     def guardar(self, output_dir: str):

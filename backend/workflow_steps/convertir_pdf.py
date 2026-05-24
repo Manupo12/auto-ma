@@ -48,7 +48,12 @@ def convertir_todos(formatos: List[dict]) -> Dict:
             _log(f"❌ {f.get('formato','?')}: {e}")
             errores.append({"formato": f.get("formato"), "error": str(e)})
 
-    return {"ok": True, "pdfs": pdfs, "errores": errores}
+    formatos_a_convertir = sum(1 for f in formatos if f.get("qa_ok"))
+    if formatos_a_convertir > 0:
+        ok = len(pdfs) >= formatos_a_convertir
+    else:
+        ok = True
+    return {"ok": ok, "pdfs": pdfs, "errores": errores}
 
 
 def ejecutar(qa_resultados: List[dict]) -> dict:

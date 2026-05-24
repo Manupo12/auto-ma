@@ -386,7 +386,7 @@ export default function ChatPage() {
         const n = [...prev];
         n[n.length - 1] = {
           ...n[n.length - 1],
-          contenido: n[n.length - 1].contenido || "Error de conexion con el servidor. Asegurate de que el backend este corriendo.",
+          contenido: n[n.length - 1].contenido || "Error de conexión con el servidor. Asegurate de que el backend este corriendo.",
         };
         return n;
       });
@@ -506,12 +506,12 @@ export default function ChatPage() {
                       f.archivo ? (
                         <a
                           key={fi}
-                          href={`/api/download/${encodeURIComponent(f.archivo.split("/").pop() || "")}`}
+                          href={`/api/download/${encodeURIComponent(f.archivo?.split("/").pop() ?? "")}`}
                           download
                           className="text-xs text-blue-600 hover:underline block"
                         >
                           <FileText size={10} className="inline mr-1" />
-                          {f.formato || f.archivo.split("/").pop()}
+                          {f.formato || f.archivo?.split("/").pop() || "Archivo"}
                         </a>
                       ) : (
                         <span key={fi} className="text-xs text-slate-400 block">

@@ -1,18 +1,19 @@
 """
-Conversión a PDF/A para archivo legal de largo plazo.
+Conversión a PDF para archivo legal de largo plazo.
 
-PDF/A (ISO 19005) es el formato estándar para preservación digital
-usado por notarías y juzgados en Colombia. Garantiza que el documento
-se verá igual dentro de 10, 20 o 50 años, independientemente del software.
+Usa LibreOffice headless. Para PDF/A real se requiere veraPDF o pdftk instalado,
+que verifican conformidad con ISO 19005. Sin estas herramientas, el PDF generado
+es PDF normal (no PDF/A) y se emite un warning.
 
 Uso:
   from backend.pdf_archivo import convertir_a_pdfa
   
   path = convertir_a_pdfa("/ruta/documento.docx")
-  # → /ruta/documento.pdf (PDF/A-2b)
+  # → /ruta/documento.pdf
 """
 
 import os
+import shutil
 import subprocess
 import hashlib
 from datetime import datetime
@@ -21,18 +22,18 @@ from typing import Optional
 
 def convertir_a_pdfa(docx_path: str, output_dir: Optional[str] = None) -> str:
     """
-    Convierte un .docx a PDF/A-2b usando LibreOffice headless.
-    
-    PDF/A-2b es el perfil recomendado para archivo legal:
-    - b = basic (nivel de conformidad básico)
-    - 2 = soporta transparencias y capas (mejor que PDF/A-1)
-    
+    Convierte un .docx a PDF usando LibreOffice headless.
+
+    NOTA: Este metodo genera PDF normal via LibreOffice. Para PDF/A
+    conforme a ISO 19005 se requiere veraPDF o pdftk para verificar
+    la conformidad. Sin estas herramientas, el PDF no es PDF/A real.
+
     Args:
         docx_path: Ruta al archivo .docx
         output_dir: Directorio de salida (default: mismo que docx_path)
-    
+
     Returns:
-        Ruta al archivo PDF/A generado
+        Ruta al archivo PDF generado
     """
     if not os.path.exists(docx_path):
         raise FileNotFoundError(f"No se encontró: {docx_path}")
@@ -89,15 +90,21 @@ def convertir_a_pdfa(docx_path: str, output_dir: Optional[str] = None) -> str:
     
     # Guardar metadata de conversión
     meta_path = pdf_path.replace(".pdf", ".pdf.meta.json")
+    tiene_verapdf = shutil_which("verapdf") is not None
+    tiene_pdftk = shutil_which("pdftk") is not None
+
     import json
     with open(meta_path, "w") as f:
         json.dump({
-            "formato": "PDF/A-2b",
+            "formato": "PDF/A-2b" if (tiene_verapdf or tiene_pdftk) else "PDF (LibreOffice)",
             "fuente": docx_path,
             "fecha_conversion": datetime.now().isoformat(),
             "hash_sha256": file_hash,
             "software": "LibreOffice",
             "version": result.stdout.strip() if result.returncode == 0 else "python-docx",
+            "verapdf_disponible": tiene_verapdf,
+            "pdftk_disponible": tiene_pdftk,
+            "advertencia": None if (tiene_verapdf or tiene_pdftk) else "PDF/A real requiere veraPDF o pdftk. Este PDF NO es PDF/A conforme a ISO 19005.",
         }, f, indent=2)
     
     return pdf_path

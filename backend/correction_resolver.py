@@ -73,12 +73,15 @@ def _llamar_llm_clasificador(mensaje: str, paciente_cc: str) -> Dict:
         )
     finally:
         try: os.unlink(ctx_file)
-        except: pass
+        except Exception as e: _log(f"No se pudo eliminar temp {ctx_file}: {e}")
 
     if proc.returncode != 0:
         return {"campo": None, "confianza": 0, "error": proc.stderr[:200]}
 
-    resultado = json.loads(proc.stdout)
+    try:
+        resultado = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        return {"campo": None, "confianza": 0, "error": str(e)}
     respuesta = resultado.get("respuesta", "")
 
     import re

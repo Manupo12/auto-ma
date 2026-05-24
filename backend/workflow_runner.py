@@ -67,13 +67,19 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
     t_total = time.time()
 
     for step_name, estado_label, paso_num in STEPS:
-        db.actualizar_paso(task_id, paso=paso_num, estado=estado_label)
         _log(f"PASO {paso_num}/10: {step_name}")
         t_step = time.time()
 
         try:
             modulo = __import__(f"backend.workflow_steps.{step_name}", fromlist=["ejecutar"])
             kwargs = _build_kwargs(step_name, contexto)
+
+            if step_name == "generar_formatos":
+                dc = kwargs.get("datos_clinicos")
+                if dc is None or (isinstance(dc, dict) and len(dc) == 0):
+                    db.marcar_error(task_id, paso=paso_num, error="datos_clinicos vacio — sintesis fallo o no disponible")
+                    return {"task_id": task_id, "estado": "error_en_paso_7", "error": "datos_clinicos vacio"}
+
             timeout = TIMEOUT_POR_PASO.get(step_name, 120)
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -84,9 +90,10 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
                     db.marcar_error(task_id, paso=paso_num, error=f"Timeout en {step_name} (>{timeout}s)")
                     return {"task_id": task_id, "estado": f"error_en_paso_{paso_num}", "error": f"Timeout >{timeout}s"}
             contexto[step_name] = resultado_step
+            db.actualizar_paso(task_id, paso=paso_num, estado=estado_label)
             _log(f"PASO {paso_num} OK en {time.time()-t_step:.1f}s")
 
-            if step_name in ("sintetizar_maestro", "generar_formatos") and not resultado_step.get("ok"):
+            if step_name in ("transcribir", "sintetizar_maestro", "generar_formatos", "convertir_pdf") and not resultado_step.get("ok"):
                 error = resultado_step.get("error", f"step {step_name} retornó ok=false")
                 db.marcar_error(task_id, paso=paso_num, error=error)
                 return {"task_id": task_id, "estado": f"error_en_paso_{paso_num}", "error": error}
@@ -96,10 +103,17 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
                 datos_clinicos = resultado_step.get("datos_clinicos") or {}
                 faltantes = datos_clinicos.get("_meta", {}).get("campos_faltantes", [])
                 if faltantes:
-                    _log(f"⚠️ Datos sin confirmar ({len(faltantes)}): {faltantes[:4]}")
+                    _log(f"Warning: Datos sin confirmar ({len(faltantes)}): {faltantes[:4]}")
                     if not contexto.get("advertencias"):
                         contexto["advertencias"] = []
                     contexto["advertencias"].extend(faltantes)
+
+                requiere_conf = datos_clinicos.get("_requiere_confirmacion") or resultado_step.get("_requiere_confirmacion")
+                if requiere_conf:
+                    motivo = datos_clinicos.get("_requiere_confirmacion_motivo", "") or resultado_step.get("_requiere_confirmacion_motivo", "")
+                    _log(f"Workflow requiere confirmacion: {motivo}")
+                    contexto["_requiere_confirmacion"] = True
+                    contexto["_requiere_confirmacion_motivo"] = motivo
 
         except Exception as e:
             _log(f"PASO {paso_num} FALLÓ: {type(e).__name__}: {e}")
@@ -124,6 +138,10 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
         "verificacion": contexto.get("verificar_portales", {}).get("resumen", {}),
         "discrepancias": contexto.get("verificar_portales", {}).get("verificaciones", []),
     }
+    if contexto.get("_requiere_confirmacion"):
+        resultado_final["_requiere_confirmacion"] = True
+        resultado_final["_requiere_confirmacion_motivo"] = contexto.get("_requiere_confirmacion_motivo", "")
+        resultado_final["estado"] = "listo_con_advertencias"
     db.guardar_resultado(task_id, resultado_final, estado="listo")
     _log(f"═══ TASK {task_id} LISTO en {time.time()-t_total:.1f}s ═══")
     return resultado_final
@@ -171,8 +189,9 @@ def _build_kwargs(step_name: str, contexto: dict) -> dict:
     if step_name == "convertir_pdf":
         return {"qa_resultados": contexto.get("qa_formatos", {}).get("resultados", [])}
     if step_name == "notificar_listo":
-        portales = contexto.get("resolver_paciente", {}).get("datos_portales", {})
-        nombre = portales.get("medifolios", {}).get("nombre1", "") + " " + portales.get("medifolios", {}).get("apellido1", "")
+        portales = contexto.get("resolver_paciente", {}).get("datos_portales") or {}
+        medi = portales.get("medifolios") or {}
+        nombre = f"{medi.get('nombre1','')} {medi.get('apellido1','')}".strip() or cc
         verif = contexto.get("verificar_portales", {})
         return {
             "task_id": task_id,
@@ -183,7 +202,7 @@ def _build_kwargs(step_name: str, contexto: dict) -> dict:
             "resumen_verificacion": verif.get("resumen", {}),
             "discrepancias": verif.get("verificaciones", []),
         }
-    return {}
+    raise ValueError(f"Paso desconocido en _build_kwargs: '{step_name}'")
 
 
 def _get_nested(d: dict, campo: str):

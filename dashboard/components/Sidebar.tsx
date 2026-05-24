@@ -17,10 +17,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const pathname = usePathname();
 
   return (
-    <nav className="w-64 bg-white border-r border-slate-200 p-4 space-y-1">
+    <nav className="w-64 p-4 space-y-1">
       <div className="mb-6 p-3">
-        <p className="text-2xl font-bold text-slate-800">RILO SAS</p>
-        <p className="text-sm text-slate-500">Asistente Tomy</p>
+        <p className="text-2xl font-bold text-white">RILO SAS</p>
+        <p className="text-sm text-slate-400">Asistente Tomy</p>
       </div>
       {items.map(({ href, label, icon: Icon }) => {
         const active = pathname?.startsWith(href);
@@ -32,7 +32,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             className={`flex items-center gap-4 px-4 py-3 rounded-xl text-lg transition-colors ${
               active
                 ? "bg-blue-600 text-white"
-                : "text-slate-700 hover:bg-slate-100"
+                : "text-slate-300 hover:bg-slate-700 hover:text-white"
             }`}
           >
             <Icon size={26} />

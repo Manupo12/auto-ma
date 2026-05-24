@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { EstadoVisual } from "@/components/EstadoVisual";
 import { BotonGigante } from "@/components/BotonGigante";
 import { Mic, Calendar, User } from "lucide-react";
+import { authFetch } from "@/lib/auth";
 
 interface Cita {
   hora: string;
@@ -23,19 +24,23 @@ export default function HoyPage() {
   const [citas, setCitas] = useState<Cita[]>([]);
   const [tasksActivas, setTasksActivas] = useState<TaskActiva[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState("");
   const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
   useEffect(() => {
     const fetchAll = async () => {
       try {
         const [rAgenda, rTasks] = await Promise.all([
-          fetch(`${API}/api/agenda`),
-          fetch(`${API}/api/tasks/activas`),
+          authFetch(`${API}/api/agenda`),
+          authFetch(`${API}/api/tasks/activas`),
         ]);
         const agenda = rAgenda.ok ? await rAgenda.json() : {citas:[]};
         const tasks = rTasks.ok ? await rTasks.json() : {tasks:[]};
         setCitas(agenda.citas || []);
         setTasksActivas(tasks.tasks || []);
+        setError("");
+      } catch {
+        setError("No se pudo conectar con el backend. Revisa que el servidor este corriendo.");
       } finally { setCargando(false); }
     };
     fetchAll();
@@ -46,11 +51,17 @@ export default function HoyPage() {
   return (
     <div className="space-y-8 max-w-5xl mx-auto p-6">
       <header>
-        <h1 className="text-4xl font-bold text-slate-800 mb-2">Mi día, Sandra</h1>
+        <h1 className="text-4xl font-bold text-slate-800 mb-2">Mi dia, Sandra</h1>
         <p className="text-lg text-slate-500">
           {new Date().toLocaleDateString("es-CO", {weekday: "long", day: "numeric", month: "long"})}
         </p>
       </header>
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm">
+          {error}
+        </div>
+      )}
 
       <section>
         <BotonGigante

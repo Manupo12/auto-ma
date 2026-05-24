@@ -150,19 +150,19 @@ def extraer_datos_cualitativos(transcripcion: str) -> dict:
 
     patrones_secciones = {
         "metodologia": [
-            r"(?:metodología|método|procedimiento)(?:.*?)(?=\n\n|\n(?:la servidora|el trabajador|los materiales|se identificaron|$))",
+            r"(?:metodología|método|metodo|procedimiento|enfoque|técnica|tecnica|abordaje|estrategia)(?:.*?)(?=\n\n|\n(?:la servidora|el trabajador|el paciente|la paciente|los materiales|se identificaron|se identificó|los peligros|se evalu[oó]|las tareas|durante la|$))",
         ],
         "proceso_productivo": [
-            r"(?:la servidora|el trabajador|el paciente)\s+(?:manifiesta|menciona|indica|realiza|describe)\s+(?:las siguientes|las|que\s+sus)?\s*(?:funciones|tareas|actividades)?(?:.*?)(?=\n\n|\n(?:los materiales|se identificaron|el ritmo|$))",
+            r"(?:la servidora|el trabajador|el paciente|la paciente|el afiliado|la afiliada)\s+(?:manifiesta|menciona|indica|realiza|describe|refiere|reporta|comenta|se[ñn]ala|expresa|ejecuta|lleva a cabo)\s+(?:las siguientes|las|que\s+sus)?\s*(?:funciones|tareas|actividades|labores)?(?:.*?)(?=\n\n|\n(?:los materiales|se identificaron|se identificó|el ritmo|la jornada|los peligros|los equipos|las herramientas|los riesgos|$))",
         ],
         "apreciacion_trabajador": [
-            r"(?:la servidora|el trabajador)\s+(?:manifiesta|menciona|indica|refiere)\s+(?:que|dolor|limitación|molestia)(?:.*?)(?=\n\n|\n(?:la servidora puede|se realizó|$))",
+            r"(?:la servidora|el trabajador|el paciente|la paciente)\s+(?:manifiesta|menciona|indica|refiere|reporta|comenta|expresa|se[ñn]ala)\s+(?:que|dolor|limitación|limitacion|molestia|dificultad|problema|incomodidad|le cuesta|se le dificulta)(?:.*?)(?=\n\n|\n(?:la servidora puede|el trabajador puede|se realiz[oó]|se observ[oó]|durante la|se evidenci[oó]|en cuanto a|$))",
         ],
         "estandares_productividad": [
-            r"(?:el ritmo de trabajo|la productividad|estándares|meta)(?:.*?)(?=\n\n|\n(?:$))",
+            r"(?:el ritmo de trabajo|la productividad|estándares|estandares|meta|metas|rendimiento|desempe[ñn]o|cumplimiento|eficiencia)(?:.*?)(?=\n\n|\n(?:los materiales|los peligros|las tareas|se identific[oó]|$))",
         ],
         "concepto_desempeno": [
-            r"(?:concepto|desempeño|capacidad|conclusión)(?:.*?)(?=\n\n|$)",
+            r"(?:concepto|desempeño|desempeno|capacidad|conclusión|conclusion|opinión|opinion|valoración final|valoracion final|diagnóstico ocupacional|concepto final)(?:.*?)(?=\n\n|$)",
         ],
     }
 
@@ -176,14 +176,23 @@ def extraer_datos_cualitativos(transcripcion: str) -> dict:
     materiales_keywords = [
         "gancho", "pala", "barra", "tubo", "martillo", "destornillador",
         "guantes", "casco", "gafas", "botas", "epp", "herramienta",
+        "arnes", "faja", "rodillera", "tapaoidos", "mascarilla", "careta",
+        "computador", "monitor", "teclado", "mouse", "escritorio", "silla",
+        "bisturi", "pinza", "jeringa", "tijera", "escalera", "andamio",
+        "carretilla", "montacargas", "cinta", "taladro", "sierra", "llave",
     ]
     for kw in materiales_keywords:
         if kw in texto:
             datos["materiales"].append({"nombre": kw.capitalize(), "estado": "Bueno"})
 
     peligros_keywords = [
-        "biomecánico", "ergonómico", "caída", "ruido", "químico",
-        "psicosocial", "eléctrico", "mecánico", "carga", "repetitivo",
+        "biomecánico", "biomecanico", "ergonómico", "ergonomico", "caída", "caida",
+        "ruido", "químico", "quimico",
+        "psicosocial", "eléctrico", "electrico", "mecánico", "mecanico",
+        "carga", "repetitivo", "postural", "movimiento", "vibracion", "vibración",
+        "temperatura", "iluminación", "iluminacion", "radiacion", "radiación",
+        "biológico", "biologico", "locativo", "estres", "estrés", "fatiga",
+        "superficie", "altura", "espacio", "confinado", "presion", "presión",
     ]
     for kw in peligros_keywords:
         if kw in texto:

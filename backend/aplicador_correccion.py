@@ -71,6 +71,10 @@ def aplicar_correccion(paciente_cc: str, correccion: Dict) -> Dict:
     with open(json_path, encoding="utf-8") as f:
         datos = json.load(f)
 
+    cc_en_json = str(datos.get("paciente", {}).get("documento", ""))
+    if cc_en_json and cc_en_json != paciente_cc:
+        return {"ok": False, "error": f"CC en JSON ({cc_en_json}) no coincide con CC solicitado ({paciente_cc}). Corrigiendo paciente equivocado."}
+
     campo = correccion.get("campo")
     valor_nuevo = correccion.get("valor_nuevo")
 

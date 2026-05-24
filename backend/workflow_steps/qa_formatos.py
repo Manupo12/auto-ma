@@ -62,7 +62,7 @@ def qa_uno(formato: dict) -> dict:
         if not tiene_datos:
             warnings.append("Faltan datos clinicos basicos (nombre, empresa, siniestro)")
 
-        qa_ok = len(warnings) == 0 or all("Placeholders" not in w for w in warnings)
+        qa_ok = len(warnings) == 0
 
         return {
             **formato,

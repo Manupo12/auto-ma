@@ -32,6 +32,7 @@ export default function ArchivosPage() {
   const [path, setPath] = useState("");
   const [agenda, setAgenda] = useState<AgendaData | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState("");
   const [syncMsg, setSyncMsg] = useState("");
   const [syncOk, setSyncOk] = useState<boolean | null>(null);
 
@@ -42,6 +43,7 @@ export default function ArchivosPage() {
 
   const cargarArchivos = async (subpath?: string) => {
     setCargando(true);
+    setError("");
     try {
       const url = subpath
         ? `/api/archivos?path=${encodeURIComponent(subpath)}`
@@ -51,9 +53,11 @@ export default function ArchivosPage() {
       if (data.ok) {
         setArchivos(data.archivos || []);
         setPath(data.path || "");
+      } else {
+        setError(data.detail || "Error al cargar archivos");
       }
-    } catch (e) {
-      console.error("Error cargando archivos:", e);
+    } catch {
+      setError("No se pudo cargar archivos. Revisa que el servidor este corriendo.");
     } finally {
       setCargando(false);
     }
@@ -186,6 +190,12 @@ export default function ArchivosPage() {
         }`}>
           {syncOk === false ? <AlertCircle size={16} /> : <CheckCircle size={16} />}
           {syncMsg}
+        </div>
+      )}
+
+      {error && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm flex items-center gap-2">
+          <AlertCircle size={16} /> {error}
         </div>
       )}
 

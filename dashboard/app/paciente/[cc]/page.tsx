@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Loader2, AlertCircle, Clock, CheckCircle, FileText } from "lucide-react";
+import { authFetch } from "@/lib/auth";
+import type { Paciente, FormatoInfo } from "@/lib/api";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -29,11 +31,11 @@ interface TaskActiva {
 
 export default function PacientePage() {
   const { cc } = useParams<{ cc: string }>();
-  const [paciente, setPaciente] = useState<any>(null);
+  const [paciente, setPaciente] = useState<Paciente | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [taskActiva, setTaskActiva] = useState<TaskActiva | null>(null);
-  const [formatos, setFormatos] = useState<any[]>([]);
+  const [formatos, setFormatos] = useState<FormatoInfo[]>([]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -41,13 +43,13 @@ export default function PacientePage() {
     const cargar = async () => {
       try {
         const [rP, rT, rF] = await Promise.all([
-          fetch(`${API}/api/pacientes/${cc}`),
-          fetch(`${API}/api/tasks/paciente/${cc}`),
-          fetch(`${API}/api/pacientes/${cc}/formatos`),
+          authFetch(`${API}/api/pacientes/${cc}`),
+          authFetch(`${API}/api/tasks/paciente/${cc}`),
+          authFetch(`${API}/api/pacientes/${cc}/formatos`),
         ]);
 
         if (rP.ok) setPaciente(await rP.json());
-        else if (rP.status === 404) setError("");
+        else if (rP.status === 404) setError("Paciente no encontrado");
         else setError("Error al cargar datos del paciente");
 
         if (rT.ok) {
@@ -67,6 +69,11 @@ export default function PacientePage() {
       }
     };
 
+    setPaciente(null);
+    setFormatos([]);
+    setTaskActiva(null);
+    setLoading(true);
+    setError("");
     cargar();
     interval = setInterval(cargar, 5000);
     return () => clearInterval(interval);
@@ -109,7 +116,7 @@ export default function PacientePage() {
             <Clock size={24} className="text-blue-600 animate-pulse" />
             <div>
               <h2 className="text-xl font-bold text-slate-800">Procesando...</h2>
-              <p className="text-blue-700">{PASOS_LABELS[taskActiva.paso_actual] || taskActiva.estado}</p>
+              <p className="text-blue-700">{PASOS_LABELS[taskActiva.paso_actual] ?? "Paso desconocido"}</p>
             </div>
             <span className="ml-auto text-lg font-bold text-blue-600">Paso {taskActiva.paso_actual}/10</span>
           </div>
@@ -156,7 +163,7 @@ export default function PacientePage() {
         <div className="bg-white border border-slate-200 rounded-xl p-6">
           <h2 className="text-lg font-bold text-slate-700 mb-4">Formatos generados ({formatos.length})</h2>
           <div className="space-y-2">
-            {formatos.map((f: any, i: number) => {
+            {formatos.map((f: FormatoInfo, i: number) => {
               const nombreArchivo = f.archivo_docx ? f.archivo_docx.split("/").pop() : null;
               return (
                 <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">

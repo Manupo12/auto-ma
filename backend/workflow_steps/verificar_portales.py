@@ -159,7 +159,10 @@ def ejecutar(datos_clinicos: dict, paciente_cc: str) -> dict:
 
         estado = "no_verificado"
         if not val_sintesis and not val_portal:
-            estado = "faltante"
+            if parcial:
+                estado = "no_verificado"
+            else:
+                estado = "faltante"
         elif not val_sintesis and val_portal:
             estado = "completado_portal"
             campos_completados[nombre_campo] = val_portal

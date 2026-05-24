@@ -161,7 +161,7 @@ def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, fo
         )
     finally:
         try: os.unlink(contexto_file)
-        except Exception: pass
+        except Exception as e: _log(f"No se pudo eliminar temp {contexto_file}: {e}")
 
     if proc.returncode != 0:
         _log(f"lote_worker falló: {proc.stderr[:500]}")
@@ -188,6 +188,17 @@ def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, fo
         return {
             "ok": False,
             "error": "LLM no devolvio JSON clinico valido",
+            "respuesta_cruda": respuesta_texto[:500],
+            "tokens": resultado.get("tokens", {}),
+        }
+
+    paciente = datos_clinicos.get("paciente", {}) or {}
+    siniestro = datos_clinicos.get("siniestro", {}) or {}
+    if not paciente.get("documento") or not siniestro.get("id_siniestro"):
+        return {
+            "ok": False,
+            "error": "Datos clinicos incompletos: falta documento del paciente o id_siniestro",
+            "datos_clinicos": datos_clinicos,
             "respuesta_cruda": respuesta_texto[:500],
             "tokens": resultado.get("tokens", {}),
         }

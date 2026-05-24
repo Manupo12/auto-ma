@@ -16,7 +16,7 @@ Schema:
 import json
 import sqlite3
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -90,24 +90,27 @@ class TaskDB:
 
     def actualizar_paso(self, task_id: str, paso: int, estado: str):
         with self._conn() as conn:
-            conn.execute(
-                "UPDATE workflow_tasks SET paso_actual = ?, estado = ? WHERE task_id = ?",
-                (paso, estado, task_id),
-            )
+            with conn:
+                conn.execute(
+                    "UPDATE workflow_tasks SET paso_actual = ?, estado = ? WHERE task_id = ?",
+                    (paso, estado, task_id),
+                )
 
     def marcar_error(self, task_id: str, paso: int, error: str):
         with self._conn() as conn:
-            conn.execute(
-                "UPDATE workflow_tasks SET estado = ?, error = ?, terminado_en = ? WHERE task_id = ?",
-                (f"error_en_paso_{paso}", error[:1000], datetime.now().isoformat(), task_id),
-            )
+            with conn:
+                conn.execute(
+                    "UPDATE workflow_tasks SET estado = ?, error = ?, terminado_en = ? WHERE task_id = ?",
+                    (f"error_en_paso_{paso}", error[:1000], datetime.now(timezone.utc).isoformat(), task_id),
+                )
 
     def guardar_resultado(self, task_id: str, resultado: dict, estado: str = "listo"):
         with self._conn() as conn:
-            conn.execute(
-                "UPDATE workflow_tasks SET estado = ?, resultado = ?, terminado_en = ? WHERE task_id = ?",
-                (estado, json.dumps(resultado, ensure_ascii=False), datetime.now().isoformat(), task_id),
-            )
+            with conn:
+                conn.execute(
+                    "UPDATE workflow_tasks SET estado = ?, resultado = ?, terminado_en = ? WHERE task_id = ?",
+                    (estado, json.dumps(resultado, ensure_ascii=False), datetime.now(timezone.utc).isoformat(), task_id),
+                )
 
     def listar_tasks_paciente(self, paciente_cc: str, limit: int = 20) -> list:
         with self._conn() as conn:

@@ -216,7 +216,7 @@ def _extraer_valor_nuevo(mensaje: str) -> Optional[str]:
     # Patrones comunes de asignación
     patterns = [
         # "cambia/pon/corrige [algo] a/por/con VALOR"
-        r"(?:cambia|pon|coloca|escribe|corrige|actualiza|modifica|cambiale)\s+(?:\w+\s+){0,4}(?:a|por|con)\s+['\"]?([^'\".,\n]+?)['\"]?(?:\s*(?:$|[.,]|\s+(?:en|del|de|la|el|al)\s))",
+        r"(?:cambia|pon|coloca|escribe|corrige|actualiza|modifica|cambiale)\s+(?:\w+\s+){0,4}(?:a|por|con)\s+['\"]?([^'\".,\n]+?)['\"]?(?:\s*(?:$|[.,](?:\s+[A-ZÁÉÍÓÚÑ])|\s+(?:en|del|de|la|el|al|para)\s))",
         # "ponle/colocale VALOR"
         r"(?:ponle|ponerle|col[oó]cale|agregale|a[ñn]adele)\s+['\"]?(\d[\d\s/-]*|\S+)['\"]?",
         # "es/sería/debe ser VALOR" (captura número o fecha primero)
@@ -421,11 +421,11 @@ def analizar_mensaje_rechazo(mensaje: str) -> InstruccionCorreccion:
             "Sandra, no entendí bien qué hay que corregir. "
             "¿Me puedes decir exactamente qué campo está mal y cuál sería el valor correcto?"
         )
-    elif tipo == TipoCorreccion.CAMPO_FALTANTE and campo_detectado and not valor_nuevo:
-        if campo_detectado is not None:
+    elif tipo == TipoCorreccion.CAMPO_FALTANTE and not valor_nuevo:
+        if campo_detectado:
             pregunta = f"Sandra, ¿cuál es el valor correcto para '{campo_detectado}'?"
         else:
-            pregunta = "Sandra, ¿podrías decirme qué campo falta y cuál sería su valor correcto?"
+            pregunta = "Sandra, podes decirme que campo queres corregir?"
     
     return InstruccionCorreccion(
         tipo=tipo,

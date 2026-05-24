@@ -18,7 +18,9 @@ Ejecutar:
 import os
 import json
 import glob
+import sys
 import asyncio
+import traceback
 import tempfile
 from pathlib import Path
 from datetime import datetime
@@ -33,14 +35,16 @@ except ImportError:
     print("   pip install python-dotenv")
 
 import shutil
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Cookie
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Cookie, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
+from backend.auth_simple import verificar_sesion
+
 app = FastAPI(title="RILO SAS API", version="1.0.0")
 
-_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://192.168.*,http://10.*,http://172.*")
+_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _cors_raw.split(",")],
@@ -70,6 +74,13 @@ def _validar_audio(filename: str, contenido: bytes) -> str:
         raise HTTPException(400, f"Formato no soportado: {ext}. Usa MP3, M4A, WAV.")
     if len(contenido) > AUDIO_MAX_BYTES:
         raise HTTPException(413, f"Audio muy grande ({len(contenido)//1024//1024}MB). Max 200MB.")
+    try:
+        import magic
+        mime = magic.from_buffer(contenido[:2048], mime=True)
+        if not mime.startswith("audio/"):
+            raise HTTPException(400, f"Archivo no es audio, MIME detectado: {mime}")
+    except ImportError:
+        pass
     return ext
 
 
@@ -231,13 +242,17 @@ def stats():
 
 
 @app.get("/api/download/{filename}")
-def descargar_archivo(filename: str):
+def descargar_archivo(filename: str, cc: Optional[str] = None):
     safe_name = Path(filename).name  # strip any path traversal
-    path = DOCS_DIR / safe_name
-    if not path.exists() or not path.is_file():
+    if cc and not (cc in safe_name):
+        raise HTTPException(status_code=403, detail=f"El archivo no pertenece al paciente CC {cc}")
+    resolved = (DOCS_DIR / safe_name).resolve()
+    if not str(resolved).startswith(str(DOCS_DIR.resolve())):
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+    if not resolved.exists() or not resolved.is_file():
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
     return FileResponse(
-        str(path),
+        str(resolved),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         filename=safe_name,
     )
@@ -269,7 +284,7 @@ async def chat(req: ChatRequest):
 
 
 @app.post("/api/chat/stream")
-async def chat_stream(req: ChatRequest):
+async def chat_stream(req: ChatRequest, session = Depends(verificar_sesion)):
     """
     Streaming SSE del chat. El frontend lee los chunks con ReadableStream.
     """
@@ -413,7 +428,7 @@ async def chat_audio(
 # ─── Archivos paciente para FilePicker ───────────────────────
 
 @app.get("/api/archivos/paciente/{cc}")
-def archivos_paciente(cc: str):
+def archivos_paciente(cc: str, session = Depends(verificar_sesion)):
     result = []
     for f in sorted(DOCS_DIR.glob(f"*{cc}*.docx"), key=lambda x: x.stat().st_mtime, reverse=True):
         result.append({
@@ -448,7 +463,7 @@ def guardar_historial(req: ChatHistorialRequest):
 
 
 @app.get("/api/chat/historial/{cc}")
-def cargar_historial(cc: str):
+def cargar_historial(cc: str, session = Depends(verificar_sesion)):
     """Carga la conversacion de un paciente."""
     import sqlite3
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
@@ -480,12 +495,18 @@ def listar_historial():
 
 
 @app.delete("/api/chat/historial/{cc}")
-def eliminar_historial(cc: str):
+def eliminar_historial(cc: str, session = Depends(verificar_sesion)):
     """Elimina el historial de chat de un paciente."""
     import sqlite3
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
     with sqlite3.connect(db_path, timeout=30) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM chat_history WHERE paciente_cc=?", (cc,)
+        ).fetchone()[0]
+        if count == 0:
+            raise HTTPException(status_code=404, detail=f"No hay historial para CC {cc}")
         conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))
+    print(f"[AUDIT] Historial de chat eliminado para CC {cc} ({count} mensajes)", file=sys.stderr, flush=True)
     return {"ok": True, "mensaje": f"Historial de CC {cc} eliminado"}
 
 
@@ -541,19 +562,25 @@ def listar_pacientes():
 
 
 @app.get("/api/pacientes/{cc}")
-def obtener_paciente(cc: str):
+def obtener_paciente(cc: str, session = Depends(verificar_sesion)):
     datos = _cargar_datos_paciente(cc)
     return _datos_a_paciente_info(datos)
 
 
 @app.get("/api/pacientes/{cc}/formatos")
-def listar_formatos(cc: str):
+def listar_formatos(cc: str, session = Depends(verificar_sesion)):
     return _listar_formatos_cc(cc)
 
 
 @app.delete("/api/pacientes/{cc}/formatos")
-def eliminar_formatos(cc: str):
+def eliminar_formatos(cc: str, session = Depends(verificar_sesion)):
     """Elimina todos los formatos DOCX y PDFs de un paciente."""
+    data_file = DATA_DIR / f"{cc}-completo.json"
+    tiene_docs = any(True for _ in DOCS_DIR.glob(f"*{cc}*"))
+    tiene_pdfs = any(True for _ in PDFS_DIR.glob(f"*{cc}*"))
+    tiene_audio = any(True for _ in AUDIO_DIR.glob(f"*{cc}*"))
+    if not data_file.exists() and not tiene_docs and not tiene_pdfs and not tiene_audio:
+        raise HTTPException(status_code=404, detail=f"No hay formatos para CC {cc}")
     eliminados = []
     for d in [DOCS_DIR, PDFS_DIR, AUDIO_DIR]:
         for f in d.glob(f"*{cc}*"):
@@ -563,7 +590,6 @@ def eliminar_formatos(cc: str):
             except Exception:
                 pass
     # Limpiar JSON
-    data_file = DATA_DIR / f"{cc}-completo.json"
     if data_file.exists():
         data_file.unlink()
         eliminados.append(str(data_file.name))
@@ -574,14 +600,23 @@ def eliminar_formatos(cc: str):
             eliminados.append(str(f.name))
         except Exception:
             pass
+    print(f"[AUDIT] Formatos eliminados para CC {cc}: {len(eliminados)} archivos", file=sys.stderr, flush=True)
     return {"ok": True, "eliminados": len(eliminados), "archivos": eliminados}
 
 
 @app.delete("/api/pacientes/{cc}")
-def eliminar_paciente(cc: str):
+def eliminar_paciente(cc: str, session = Depends(verificar_sesion)):
     """Elimina paciente: cancela tareas activas primero, luego borra archivos."""
     import sqlite3, glob as _glob
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
+
+    data_file = DATA_DIR / f"{cc}-completo.json"
+    alt_data = DATA_DIR / f"{cc}.json"
+    tiene_datos = data_file.exists() or alt_data.exists() or _glob.glob(str(DATA_DIR / f"*{cc}*-completo.json")) or _glob.glob(str(DATA_DIR / f"*{cc}*.json"))
+    tiene_docs = any(True for _ in DOCS_DIR.glob(f"*{cc}*"))
+    tiene_workflow = any(True for _ in WORKFLOW_AUDIOS_DIR.glob(f"*{cc}*"))
+    if not tiene_datos and not tiene_docs and not tiene_workflow:
+        raise HTTPException(status_code=404, detail=f"Paciente CC {cc} no encontrado")
 
     # Cancelar tareas activas antes de borrar (evita que el workflow recree archivos)
     with sqlite3.connect(db_path, timeout=30) as conn:
@@ -603,6 +638,7 @@ def eliminar_paciente(cc: str):
     with sqlite3.connect(db_path, timeout=30) as conn:
         conn.execute("DELETE FROM workflow_tasks WHERE paciente_cc=?", (cc,))
         conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (cc,))
+    print(f"[AUDIT] Paciente CC {cc} eliminado: {len(eliminados)} archivos", file=sys.stderr, flush=True)
     return {"ok": True, "eliminados": len(eliminados), "archivos": eliminados}
 
 
@@ -652,7 +688,8 @@ def generar_formatos(cc: str, req: GenerarRequest):
             "mensaje": f"{len(generados)} formato(s) generado(s), {len(errores)} error(es)",
         }
     except ImportError as e:
-        raise HTTPException(status_code=500, detail=f"Error de importación: {e}")
+        print(f"[ERROR generar_formatos] {traceback.format_exc()}", file=sys.stderr, flush=True)
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
 
 
 @app.post("/api/pacientes/{cc}/formatos/{fmt}/corregir")
@@ -670,8 +707,11 @@ def corregir_formato(cc: str, fmt: str, req: CorregirRequest):
             "campo": instruccion.campo,
             "accion": accion,
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[ERROR corregir_formato] {traceback.format_exc()}", file=sys.stderr, flush=True)
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
 
 
 if __name__ == "__main__":
@@ -764,7 +804,7 @@ def listar_archivos(path: Optional[str] = None):
 
 
 @app.post("/api/archivos/sync")
-def sync_workspace():
+def sync_workspace(session = Depends(verificar_sesion)):
     """Sincronizar carpeta de trabajo con git (pull + push)."""
     import subprocess
     try:
@@ -810,7 +850,7 @@ def sync_workspace():
 
 
 @app.get("/api/pacientes/buscar")
-def buscar_paciente_agenda(q: Optional[str] = None):
+def buscar_paciente_agenda(q: Optional[str] = None, session = Depends(verificar_sesion)):
     """
     Buscar paciente en la agenda actual.
     Útil para cuando Sandra atiende a alguien y quiere ver sus datos rápido.
@@ -851,7 +891,21 @@ def diagnosticar_workspace():
 
 @app.on_event("startup")
 async def iniciar_cron():
-    """Inicia el scheduler y recupera tasks perdidas."""
+    """Inicia el scheduler, valida API keys y recupera tasks perdidas."""
+    import sys as _sys
+
+    # Validar API keys al arrancar (solo loguea, no bloquea)
+    for key, nombre in [
+        ("DEEPGRAM_API_KEY", "Deepgram (transcripcion)"),
+        ("OPENCODE_GO_API_KEY", "OpenCode Go (LLM)"),
+        ("TELEGRAM_BOT_TOKEN", "Telegram (notificaciones)"),
+    ]:
+        val = os.getenv(key, "")
+        if not val or not val.strip():
+            print(f"[STARTUP] ERROR: {key} ({nombre}) no configurada o vacia", file=_sys.stderr, flush=True)
+        else:
+            print(f"[STARTUP] {key} ({nombre}): configurada", file=_sys.stderr, flush=True)
+
     from backend.cron_pre_extraccion import iniciar_scheduler
     iniciar_scheduler()
 
@@ -1097,7 +1151,7 @@ def listar_activas():
 
 
 @app.get("/api/tasks/paciente/{cc}")
-def listar_tasks_paciente(cc: str):
+def listar_tasks_paciente(cc: str, session = Depends(verificar_sesion)):
     """Historial de workflows del paciente."""
     from backend.task_db import TaskDB
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")

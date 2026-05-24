@@ -7,8 +7,11 @@ devuelve cookie firmada con HMAC. Endpoints protegidos validan la cookie.
 Para producción más seria: migrar a OAuth o JWT con expiración.
 """
 import os
+from secrets import compare_digest
 from typing import Optional
 from itsdangerous import URLSafeSerializer, BadSignature
+
+from fastapi import HTTPException, Cookie, Depends
 
 
 def _serializer() -> URLSafeSerializer:
@@ -21,7 +24,7 @@ if not AUTH_PIN:
     raise RuntimeError("AUTH_PIN no configurado en .env - el servidor no puede iniciar")
 
 def validar_pin(pin: str) -> bool:
-    return pin == AUTH_PIN
+    return compare_digest(pin, AUTH_PIN)
 
 
 def generar_token(usuario: str = "Sandra") -> str:
@@ -36,3 +39,12 @@ def validar_token(token: str) -> Optional[str]:
         return data.get("usuario")
     except BadSignature:
         return None
+
+
+async def verificar_sesion(rilo_session: Optional[str] = Cookie(None)):
+    if not rilo_session:
+        raise HTTPException(status_code=401, detail="No autenticado. Usa /api/login para iniciar sesion.")
+    usuario = validar_token(rilo_session)
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Sesion invalida o expirada. Vuelve a iniciar sesion.")
+    return usuario

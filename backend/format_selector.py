@@ -110,7 +110,7 @@ def _is_empty(value: Any) -> bool:
     return False
 
 
-def detectar_estado(datos: dict) -> EstadoCaso:
+def detectar_estado(datos: dict, excluir_prueba_trabajo: bool = False) -> EstadoCaso:
     """
     Infiere el estado del caso a partir de los datos disponibles.
     
@@ -143,15 +143,15 @@ def detectar_estado(datos: dict) -> EstadoCaso:
                 return val
 
     # 2. ¿Prueba de trabajo?
-    metodologia = str(_get_nested(datos, "consulta.metodologia") or "").upper()
-    concepto = str(_get_nested(datos, "consulta.concepto_desempeno") or "").upper()
-    tipo_estudio = str(_get_nested(datos, "visita.tipo_estudio") or "").upper()
+    if not excluir_prueba_trabajo:
+        metodologia = str(_get_nested(datos, "consulta.metodologia") or "").upper()
+        concepto = str(_get_nested(datos, "consulta.concepto_desempeno") or "").upper()
+        tipo_estudio = str(_get_nested(datos, "visita.tipo_estudio") or "").upper()
 
-    KEYWORDS_PRUEBA = ["prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desem"]
-    es_prueba = any(kw in metodologia.lower() for kw in KEYWORDS_PRUEBA) or any(kw in concepto.lower() for kw in KEYWORDS_PRUEBA) or any(kw in tipo_estudio.lower() for kw in KEYWORDS_PRUEBA) or "PT" == tipo_estudio.strip()
-    if es_prueba:
-        # Determinar estado base para extras
-        return EstadoCaso.PRUEBA_TRABAJO
+        KEYWORDS_PRUEBA = ["prueba de trabajo", "prueba funcional", "prueba laboral", "evaluacion de desem"]
+        es_prueba = any(kw in metodologia.lower() for kw in KEYWORDS_PRUEBA) or any(kw in concepto.lower() for kw in KEYWORDS_PRUEBA) or any(kw in tipo_estudio.lower() for kw in KEYWORDS_PRUEBA) or "PT" == tipo_estudio.strip()
+        if es_prueba:
+            return EstadoCaso.PRUEBA_TRABAJO
 
     # 3. ¿Cierre?
     concepto_integral = _get_nested(datos, "rehabilitacion.concepto_integral")
@@ -219,11 +219,9 @@ def seleccionar_formatos(
     # Obtener formatos base para el estado
     formatos = list(ESTADO_FORMATOS.get(estado_obj, []))
 
-    # Si es PRUEBA_TRABAJO, agregar extras según estado base
+    # Si es PRUEBA_TRABAJO, agregar extras según estado base (excluyendo prueba)
     if estado_obj == EstadoCaso.PRUEBA_TRABAJO:
-        estado_base = detectar_estado(datos)
-        if estado_base == EstadoCaso.PRUEBA_TRABAJO:
-            estado_base = EstadoCaso.NUEVO  # fallback
+        estado_base = detectar_estado(datos, excluir_prueba_trabajo=True)
         extras = PRUEBA_TRABAJO_EXTRAS.get(estado_base, [])
         for extra in extras:
             if extra not in formatos:

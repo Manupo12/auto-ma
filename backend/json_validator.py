@@ -7,7 +7,7 @@ por cada formato antes de pasarlo al doc_generator.
 Arquitectura:
   - Schemas por formato definen: required, recommended, optional, defaults
   - required → falta = ERROR, bloquea generación
-  - recommended → falta = WARNING, auto-completa con [VERIFICAR]
+  - recommended → falta = WARNING, el doc_generator lo maneja como campo pendiente
   - optional → falta = INFO, ignora
   - defaults → auto-rellena si el campo está vacío
 
@@ -437,6 +437,8 @@ def _is_empty(value: Any) -> bool:
         return True
     if value == 0:
         return True  # 0 se considera vacío (edad=0, tiempo=0 no son válidos)
+    if value is False:
+        return True  # False explicito requiere verificacion
     return False
 
 
@@ -492,8 +494,7 @@ def validar_json(
     for path in schema["recommended"]:
         valor = _get_nested(datos, path)
         if _is_empty(valor):
-            warnings.append(f"⚠️  RECOMENDADO: '{path}' → auto-completado con [VERIFICAR]")
-            _set_nested(datos, path, "[VERIFICAR]")
+            warnings.append(f"⚠️  RECOMENDADO: '{path}' esta vacio — pendiente de verificar")
             recommended_warn += 1
         else:
             recommended_ok += 1
@@ -600,7 +601,7 @@ def reporte_legible(resultados: Dict[str, dict]) -> str:
         # Warnings
         if res["warnings"]:
             warn_count = len(res["warnings"])
-            lineas.append(f"   ⚠️  ADVERTENCIAS: {warn_count} campo(s) auto-completados con [VERIFICAR]")
+            lineas.append(f"   ⚠️  ADVERTENCIAS: {warn_count} campo(s) pendientes de verificar")
 
     lineas.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     total_ok = sum(1 for r in resultados.values() if r["ok"])

@@ -70,9 +70,14 @@ export default function SubirAudioPage() {
         </label>
         <input
           type="text"
+          inputMode="numeric"
+          pattern="[0-9]{6,12}"
           value={cc}
-          onChange={(e) => setCc(e.target.value)}
-          placeholder="Escribe la cédula"
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, "");
+            setCc(digits);
+          }}
+          placeholder="Escribe la cedula"
           className="w-full p-5 text-2xl border-2 border-slate-300 rounded-xl focus:border-blue-500 outline-none"
         />
       </section>

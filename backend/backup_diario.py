@@ -4,11 +4,12 @@ Sube a destino local (./storage/backups/YYYYMMDD.tar.gz) y notifica a Manu.
 """
 import os
 import sys
+import json
 import tarfile
 import shutil
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def _vacuumar_db(db_path: Path, temp_dir: Path) -> Path:
@@ -79,6 +80,18 @@ def ejecutar_backup():
     try:
         archivo = crear_backup()
         limpiar_backups_viejos()
+
+        # Registrar estado del backup
+        status_path = Path(os.getenv("STORAGE_DIR", "./storage")) / "backup_status.json"
+        try:
+            status_path.write_text(json.dumps({
+                "ultimo_ok": datetime.now(timezone.utc).isoformat(),
+                "tamano_bytes": archivo.stat().st_size,
+                "archivo": archivo.name,
+            }, indent=2))
+        except Exception as e:
+            _log(f"aviso: no se pudo escribir backup_status.json: {e}")
+
         from backend.notificador import enviar_telegram
         tamano_mb = archivo.stat().st_size / 1024 / 1024
         enviar_telegram(f"💾 Backup diario OK: {archivo.name} ({tamano_mb:.1f} MB). Backups retenidos: 14.")

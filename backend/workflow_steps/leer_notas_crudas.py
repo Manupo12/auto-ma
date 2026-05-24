@@ -57,12 +57,20 @@ def _fast_scan(directory: Path, max_depth: int = 2, timeout_s: float = 5.0) -> l
     return results
 
 
+def _mtime_safe(ruta: str) -> float:
+    """Retorna st_mtime de forma segura, 0 si falla."""
+    try:
+        return Path(ruta).stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def leer_notas_crudas(cc: str, max_archivos: int = 5) -> tuple:
     """Busca archivos del workspace con el CC. Retorna (lista, completo)."""
     workspace = Path(os.getenv("WORKSPACE_DIR", str(Path.home() / "rilo-workspace")))
     if not workspace.exists():
         _log(f"Workspace no existe: {workspace}")
-        return [], True
+        return [], False
 
     candidatos = []
     extensiones = (".txt", ".md", ".docx")
@@ -94,7 +102,7 @@ def leer_notas_crudas(cc: str, max_archivos: int = 5) -> tuple:
     except Exception as e:
         _log(f"Error escaneando: {e}")
 
-    candidatos.sort(key=lambda d: Path(d["ruta"]).stat().st_mtime, reverse=True)
+    candidatos.sort(key=lambda d: _mtime_safe(d["ruta"]), reverse=True)
     return candidatos[:max_archivos], completo
 
 

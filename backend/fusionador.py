@@ -146,9 +146,9 @@ def fusionar_todo(
         if siniestro_med.strip() != siniestro_pos.strip():
             reconciliacion["coinciden"] = False
             reconciliacion["alerta"] = (
-                f"⚠️ DISCREPANCIA DE SINIESTRO: Medifolios={siniestro_med}, "
-                f"Positiva={siniestro_pos}. Se usará el de Positiva (fuente oficial). "
-                f"Verificar manualmente."
+                f"DISCREPANCIA DE SINIESTRO: Medifolios={siniestro_med}, "
+                f"Positiva={siniestro_pos}. Se requiere confirmacion manual antes de generar documentos. "
+                f"Ningun siniestro se asignara automaticamente."
             )
     elif siniestro_med and not siniestro_pos:
         reconciliacion["alerta"] = "ℹ️ Siniestro solo en Medifolios (no en Positiva)"
@@ -158,7 +158,8 @@ def fusionar_todo(
         reconciliacion["alerta"] = "⚠️ Siniestro NO encontrado en ningún portal"
     
     siniestro.update(med.get("siniestro", {}))
-    siniestro.update(pos.get("siniestro", {}))
+    if reconciliacion["coinciden"]:
+        siniestro.update(pos.get("siniestro", {}))
     
     # Si hay multiples siniestros en Positiva, el principal es el primero AT.
     # Guardar el resto en historial para referencia.
@@ -318,6 +319,10 @@ def fusionar_todo(
             if not k.startswith("_")
         ),
     }
+
+    if not reconciliacion["coinciden"]:
+        resultado["_requiere_confirmacion"] = True
+        resultado["_requiere_confirmacion_motivo"] = reconciliacion["alerta"]
     
     return resultado
 

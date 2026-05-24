@@ -25,13 +25,13 @@ def _calcular_duracion_s(audio_path: Path) -> float:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=30, check=True,
         )
         return float(result.stdout.strip())
     except FileNotFoundError:
         _log("ffprobe no disponible - asumiendo audio largo (3600s)")
         return 3600.0
-    except (ValueError, subprocess.TimeoutExpired):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
         _log("ffprobe error - asumiendo audio corto")
         return 0.0
 
@@ -88,6 +88,7 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
             warnings.append(f"Confianza baja del audio: {confianza:.2f}")
 
         return {
+            "ok": True,
             "texto": texto,
             "segmentos": resultado.get("segmentos", []),
             "duracion": duracion,
@@ -134,12 +135,13 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
         except Exception as e:
             _log(f"Chunk {i+1} fallo: {e}")
             chunk_resultados.append({"ok": False, "error": str(e)})
+            confianzas.append(0.0)
             warnings.append(f"Chunk {i+1} no se pudo transcribir: {e}")
 
     try:
         shutil.rmtree(temp_dir)
-    except Exception:
-        pass
+    except Exception as e:
+        _log(f"No se pudo eliminar temp {temp_dir}: {e}")
 
     confianza_global = sum(confianzas) / len(confianzas) if confianzas else 0
     if confianza_global < 0.4:
@@ -151,7 +153,10 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
     if len(chunks) > 0 and fallidos / len(chunks) > 0.2:
         warnings.append(f"{fallidos}/{len(chunks)} chunks fallaron")
 
-    return {
+    fallidos = sum(1 for r in chunk_resultados if not r.get("ok"))
+    todos_fallaron = len(chunks) > 0 and fallidos == len(chunks)
+
+    resultado = {
         "texto": "\n".join(textos),
         "segmentos": segmentos_global,
         "duracion": duracion,
@@ -159,6 +164,17 @@ def transcribir_audio_largo(audio_path: str, paciente_cc: str) -> Dict:
         "chunks_procesados": len(chunks),
         "warnings": warnings,
     }
+
+    if todos_fallaron:
+        resultado["ok"] = False
+        resultado["error"] = f"Todos los {len(chunks)} chunks fallaron"
+    elif fallidos > 0:
+        resultado["ok"] = True
+        resultado["error"] = f"{fallidos}/{len(chunks)} chunks fallaron"
+    else:
+        resultado["ok"] = True
+
+    return resultado
 
 
 def ejecutar(audio_path: str, paciente_cc: str) -> Dict:

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { Search, User, Phone, Mail, MapPin, FileText, Loader2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { Paciente, FormatoInfo } from "@/lib/api";
+import { authFetch } from "@/lib/auth";
 
 export default function PacientesPage() {
   const [cc, setCc] = useState("");
@@ -19,8 +21,8 @@ export default function PacientesPage() {
     setFormatos([]);
     try {
       const [resPac, resFmt] = await Promise.all([
-        fetch(`/api/pacientes/${cc.trim()}`),
-        fetch(`/api/pacientes/${cc.trim()}/formatos`),
+        authFetch(`/api/pacientes/${cc.trim()}`),
+        authFetch(`/api/pacientes/${cc.trim()}/formatos`),
       ]);
 
       if (resPac.status === 404) {
@@ -133,7 +135,7 @@ export default function PacientesPage() {
   );
 }
 
-function InfoRow({ icon: Icon, label, value }: { icon: any; label: string; value?: string }) {
+function InfoRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value?: string }) {
   return (
     <div className="flex items-center gap-3">
       <Icon size={16} className="text-slate-400 flex-shrink-0" />

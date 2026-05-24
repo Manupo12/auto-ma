@@ -40,7 +40,7 @@ def leer_formatos_subidos(task_id: str, max_chars: int = 5000) -> List[Dict]:
             except Exception as e:
                 _log(f"Error leyendo {path.name}: {e}")
     except ImportError:
-        _log("python-docx no disponible")
+        _log("python-docx no disponible - no se leen formatos subidos")
 
     return formatos
 

@@ -19,6 +19,7 @@ import json
 import os
 import sys
 import time
+import random
 import traceback
 from pathlib import Path
 from datetime import datetime
@@ -106,9 +107,9 @@ def _llamar_llm(messages: list, modelo: str, max_tokens: int) -> dict:
         except Exception as e:
             last_error = e
             if intento < 2:
-                wait = (intento + 1) * 10
-                print(f"[LOTE] Reintento {intento+2}/3 en {wait}s: {e}", file=sys.stderr)
-                time.sleep(wait)
+                delay = (2 ** intento) * 10 + random.randint(0, 5)
+                print(f"[LOTE] Reintento {intento+2}/3 en {delay}s: {e}", file=sys.stderr)
+                time.sleep(delay)
     else:
         print(json.dumps({"ok": False, "error": f"HTTP error after 3 retries: {last_error}"}))
         sys.exit(1)
@@ -125,8 +126,8 @@ def _llamar_llm(messages: list, modelo: str, max_tokens: int) -> dict:
             "output": usage.get("completion_tokens", 0),
             "reasoning": usage.get("reasoning_tokens", 0),
         })
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Error costos_tracker: {e}", file=sys.stderr)
     return {
         "content": (msg.get("content") or "").strip(),
         "reasoning": (msg.get("reasoning_content") or "").strip(),

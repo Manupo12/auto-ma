@@ -126,7 +126,9 @@ def generar_todos(datos: dict, task_id: str) -> Dict:
 
     generados = []
     errores = []
-    cc = datos.get("paciente", {}).get("documento", "sin_cc")
+    cc = datos.get("paciente", {}).get("documento", "")
+    if not cc:
+        return {"ok": False, "error": "CC vacio en datos_clinicos, no se generan formatos sin identificador", "formatos_generados": [], "errores": [], "total": 0, "estado_caso": estado}
 
     for fmt in formatos:
         try:
@@ -151,6 +153,8 @@ def ejecutar(datos_clinicos: dict, task_id: str, verificaciones: list = None) ->
     if not datos_clinicos:
         return {"ok": False, "error": "Sin datos_clinicos para generar"}
     cc = datos_clinicos.get("paciente", {}).get("documento", "")
+    if not cc:
+        return {"ok": False, "error": "CC vacio en datos_clinicos, no se generan formatos sin identificador"}
     if cc:
         datos_clinicos = _merge_paciente_con_llm(datos_clinicos, cc)
     return generar_todos(datos_clinicos, task_id)

@@ -76,7 +76,11 @@ def _merge_paciente_con_llm(datos_llm: dict, cc: str) -> dict:
     if not datos_llm.get("siniestro") or not datos_llm["siniestro"].get("id_siniestro"):
         datos_llm["siniestro"] = datos_llm.get("siniestro") or {}
         if not datos_llm["siniestro"].get("id_siniestro"):
-            siniestro = medi.get("siniestro_medi") or pos.get("siniestro_id") or json_paciente.get("siniestro", {}).get("id_siniestro", "")
+            siniestros_pos = pos.get("siniestros", [])
+            siniestro_pos = siniestros_pos[0].get("id", "") if siniestros_pos else ""
+            siniestro = (medi.get("siniestro_medi") if medi.get("siniestro_medi") and medi.get("siniestro_medi") != "[VERIFICAR]" else "") \
+                     or pos.get("siniestro_id", "") \
+                     or siniestro_pos
             if siniestro and siniestro != "[VERIFICAR]":
                 datos_llm["siniestro"]["id_siniestro"] = siniestro
 
@@ -140,8 +144,11 @@ def generar_todos(datos: dict, task_id: str) -> Dict:
             _log(f"❌ {fmt}: {type(e).__name__}: {e}")
             errores.append({"formato": fmt, "error": f"{type(e).__name__}: {e}"})
 
+    ok = len(errores) == 0
+    ok_parcial = len(generados) > 0
     return {
-        "ok": len(errores) == 0,
+        "ok": ok,
+        "ok_parcial": ok_parcial,
         "formatos_generados": generados,
         "errores": errores,
         "total": len(formatos),

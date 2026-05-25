@@ -19,62 +19,26 @@ async def _navegar_a_pacientes(page: Page):
 
 
 async def _cargar_paciente_en_form(page: Page, cc: str) -> bool:
-    """Llena CC y dispara busqueda del paciente."""
+    """Llena CC y dispara busqueda del paciente via JS helper."""
     try:
         await page.fill(S.MEDI_PACIENTES["numero_id_input"], cc)
+        await page.evaluate(S.MEDI_JS_CARGAR_PACIENTE, cc)
+        await page.wait_for_timeout(4000)
     except Exception:
         return False
 
-    await page.wait_for_timeout(1000)
-
-    # Intentar click en buscar, o presionar Enter
-    clicked = False
-    for b in await page.query_selector_all("button"):
-        t = (await b.text_content() or "").strip().lower()
-        if "buscar" in t:
-            try:
-                await b.click(timeout=5000)
-                clicked = True
-                break
-            except Exception:
-                pass
-    if not clicked:
-        try:
-            await page.press(S.MEDI_PACIENTES["numero_id_input"], "Enter")
-        except Exception:
-            return False
-
-    await page.wait_for_timeout(6000)
-
-    nombre = await page.input_value(S.MEDI_PACIENTES["nombre1"], timeout=8000).catch(lambda: "")
+    try:
+        nombre = await page.input_value(S.MEDI_PACIENTES["nombre1"], timeout=8000)
+    except Exception:
+        nombre = ""
     return bool(nombre)
 
 
 async def _extraer_form_pacientes(page: Page) -> Dict:
-    """Extrae campos del formulario de pacientes."""
-    campos = {}
-    field_ids = [
-        "nombre1", "nombre2", "apellido1", "apellido2", "numero_id",
-        "direccion", "telefono", "email", "fecha_nacimiento", "edad"
-    ]
-    for fid in field_ids:
-        try:
-            el = page.locator(f"#{fid}")
-            val = await el.input_value(timeout=2000)
-            if val and val.strip():
-                campos[fid] = val.strip()
-        except Exception:
-            pass
-
-    try:
-        sexo = page.locator("select[name='sexo'], #sexo")
-        val = await sexo.input_value(timeout=2000)
-        if val:
-            campos["sexo"] = val
-    except Exception:
-        pass
-
-    return campos
+    """Extrae TODOS los campos del formulario de pacientes via JS helper."""
+    REMAP = {"slct_eps_paciente": "eps_ips", "slct_afp_paciente": "afp", "slct_arl_paciente": "arl", "slct_empresa_paciente": "empresa"}
+    campos = await page.evaluate(S.MEDI_JS_EXTRAER_FORM)
+    return {REMAP.get(k, k): v for k, v in campos.items() if v and str(v).strip()}
 
 
 async def _extraer_siniestro_de_agenda(page: Page, cc: str):

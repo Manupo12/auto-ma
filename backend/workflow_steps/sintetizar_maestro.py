@@ -34,11 +34,14 @@ def _formatear_portales(datos: dict) -> str:
     discrepancias = datos.get("_meta", {}).get("discrepancias", [])
     bloques = ["📋 DATOS VERIFICADOS PORTALES:"]
     if medi:
-        nombre = " ".join([medi.get("nombre1", ""), medi.get("apellido1", "")]).strip()
+        nombre = " ".join(filter(None, [medi.get("nombre1",""), medi.get("nombre2",""), medi.get("apellido1",""), medi.get("apellido2","")])).strip() or medi.get("nombre", "")
         if nombre: bloques.append(f"  Paciente: {nombre}")
         if medi.get("telefono"): bloques.append(f"  Teléfono: {medi['telefono']}")
         if medi.get("direccion"): bloques.append(f"  Dirección: {medi['direccion']}")
         if medi.get("siniestro_medi"): bloques.append(f"  Siniestro (Medi): {medi['siniestro_medi']}")
+        if medi.get("eps_ips"): bloques.append(f"  EPS: {medi['eps_ips']}")
+        if medi.get("afp"):     bloques.append(f"  AFP: {medi['afp']}")
+        if medi.get("empresa"): bloques.append(f"  Empresa: {medi['empresa']}")
     if pos.get("siniestros"):
         for s in pos["siniestros"][:2]:
             bloques.append(f"  Siniestro (Pos): {s.get('id','?')} | {s.get('fecha','?')} | {s.get('diagnostico','?')[:50]}")
@@ -194,14 +197,19 @@ def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, fo
 
     paciente = datos_clinicos.get("paciente", {}) or {}
     siniestro = datos_clinicos.get("siniestro", {}) or {}
-    if not paciente.get("documento") or not siniestro.get("id_siniestro"):
+    doc = (paciente.get("documento") or "").strip()
+    sin = (siniestro.get("id_siniestro") or "").strip()
+    if not doc:
         return {
             "ok": False,
-            "error": "Datos clinicos incompletos: falta documento del paciente o id_siniestro",
+            "error": "Falta documento (CC) del paciente en datos_clinicos",
             "datos_clinicos": datos_clinicos,
             "respuesta_cruda": respuesta_texto[:500],
             "tokens": resultado.get("tokens", {}),
         }
+    if not sin:
+        datos_clinicos.setdefault("siniestro", {})["id_siniestro"] = "[VERIFICAR EN PORTAL]"
+        _log("Advertencia: siniestro no encontrado - marcado como pendiente de verificacion")
 
     return {
         "ok": True,

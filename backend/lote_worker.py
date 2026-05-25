@@ -178,10 +178,13 @@ def ejecutar_sintesis(mensaje: str, contexto: str, modelo: str) -> dict:
     ]
     resultado = _llamar_llm(messages, modelo, max_tokens=16000)
     if not resultado["content"] and resultado["reasoning"]:
-        fallback = "🤔 " + " ".join(resultado["reasoning"].split("\n")[-3:])[:300]
-        return {"ok": True, "tipo": "sintetizar", "modelo": modelo,
-                "tokens": resultado["tokens"], "tiempo_s": resultado["tiempo_s"],
-                "respuesta": fallback, "finish": resultado["finish"], "fallback": True}
+        return {
+            "ok": False,
+            "tipo": "sintetizar",
+            "error": "LLM devolvio solo razonamiento sin respuesta final (posible timeout interno)",
+            "tokens": resultado["tokens"],
+            "tiempo_s": resultado["tiempo_s"],
+        }
     return {
         "ok": True,
         "tipo": "sintetizar",

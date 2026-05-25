@@ -246,16 +246,16 @@ def descargar_archivo(filename: str, cc: Optional[str] = None):
     safe_name = Path(filename).name  # strip any path traversal
     if cc and not (cc in safe_name):
         raise HTTPException(status_code=403, detail=f"El archivo no pertenece al paciente CC {cc}")
-    resolved = (DOCS_DIR / safe_name).resolve()
-    if not str(resolved).startswith(str(DOCS_DIR.resolve())):
-        raise HTTPException(status_code=403, detail="Acceso denegado")
-    if not resolved.exists() or not resolved.is_file():
-        raise HTTPException(status_code=404, detail="Archivo no encontrado")
-    return FileResponse(
-        str(resolved),
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        filename=safe_name,
-    )
+    for base_dir in [DOCS_DIR, PDFS_DIR]:
+        candidate = (base_dir / safe_name).resolve()
+        if str(candidate).startswith(str(base_dir.resolve())) and candidate.exists() and candidate.is_file():
+            mime = "application/pdf" if safe_name.endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            return FileResponse(
+                str(candidate),
+                media_type=mime,
+                filename=safe_name,
+            )
+    raise HTTPException(status_code=404, detail="Archivo no encontrado")
 
 
 @app.post("/api/chat")
@@ -418,7 +418,6 @@ async def chat_audio(
             f"Recibi el audio de CC {paciente_cc}. "
             f"Empiezo a procesarlo ahora - tarda entre 15-25 minutos. "
             f"Te aviso aqui y por Telegram cuando tenga los 7 formatos listos.\n\n"
-            f"*ID de tarea:* `{task_id}`\n\n"
             f"*Progreso:* Paso 1/10 - Transcribiendo audio..."
         ),
         "paciente_cc": paciente_cc,
@@ -435,7 +434,7 @@ def archivos_paciente(cc: str, session = Depends(verificar_sesion)):
             "nombre": f.name,
             "tamano_kb": f.stat().st_size // 1024,
             "modificado": datetime.fromtimestamp(f.stat().st_mtime).strftime("%d/%m/%Y %H:%M"),
-            "url_descarga": f"/api/download/{f.name}",
+            "url_descarga": f"{os.getenv('BACKEND_URL', 'http://localhost:8000')}/api/download/{f.name}",
         })
     return {"ok": True, "archivos": result}
 

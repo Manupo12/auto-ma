@@ -40,7 +40,14 @@ def qa_uno(formato: dict) -> dict:
     try:
         from docx import Document
         doc = Document(str(archivo))
-        texto = " ".join(p.text for p in doc.paragraphs if p.text.strip())
+        texto_parrafos = " ".join(p.text for p in doc.paragraphs if p.text.strip())
+        texto_tablas = " ".join(
+            cell.text for table in doc.tables
+            for row in table.rows
+            for cell in row.cells
+            if cell.text.strip()
+        )
+        texto = texto_parrafos + " " + texto_tablas
 
         if not texto or len(texto) < 100:
             return {**formato, "qa_ok": False, "qa_error": "documento vacio o muy corto"}

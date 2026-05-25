@@ -40,6 +40,10 @@ MEDI_PACIENTES = {
 MEDI_AGENDA = {
     "url": "https://www.server0medifolios.net/index.php/SALUD_GESTIONCITAS/agenda_cita",
     "menu_agenda": "a:has-text('Agenda Citas'), [href*='agenda_cita']",
+    "select_profesional": "select",
+    "valor_sandra": "168-0",
+    "cita_link_template": "a:has-text('{cc}'), tr:has-text('{cc}') a",
+    "popup_detalle_observaciones": "textarea[name='observaciones'], #observaciones",
 }
 
 # JS para forzar carga de paciente (Enter nativo no dispara búsqueda)
@@ -77,14 +81,6 @@ MEDI_JS_EXTRAER_FORM = """
     return d;
 }
 """
-
-MEDI_AGENDA = {
-    "menu_agenda": "a:has-text('Agenda Citas'), [href*='agenda']",
-    "select_profesional": "select",
-    "valor_sandra": "168-0",
-    "cita_link_template": "a:has-text('{cc}'), tr:has-text('{cc}') a",
-    "popup_detalle_observaciones": "textarea[name='observaciones'], #observaciones",
-}
 
 # Regex para extraer siniestro del campo observaciones
 MEDI_REGEX_SINIESTRO = r'NO\.?\s*SINIESTRO\s*(\d+)'

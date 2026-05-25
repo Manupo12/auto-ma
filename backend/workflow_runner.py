@@ -57,8 +57,16 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
     db = TaskDB(db_path)
 
+    _log("NOTA: El workflow no soporta resume automatico desde paso anterior.")
+
     if task_id_existente:
-        task_id = task_id_existente
+        task_previo = db.obtener_task(task_id_existente)
+        if task_previo and task_previo.get("paso_actual", 0) > 0:
+            _log(f"Task {task_id_existente} detectada con paso={task_previo['paso_actual']}, marcando como error_interrumpido y creando nuevo task.")
+            db.actualizar_paso(task_id_existente, task_previo["paso_actual"], "error_interrumpido")
+            task_id = db.crear_task(paciente_cc=paciente_cc, audio_path=audio_path)
+        else:
+            task_id = task_id_existente
     else:
         task_id = db.crear_task(paciente_cc=paciente_cc, audio_path=audio_path)
 
@@ -93,7 +101,14 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
             db.actualizar_paso(task_id, paso=paso_num, estado=estado_label)
             _log(f"PASO {paso_num} OK en {time.time()-t_step:.1f}s")
 
-            if step_name in ("transcribir", "sintetizar_maestro", "generar_formatos", "convertir_pdf") and not resultado_step.get("ok"):
+            if step_name == "generar_formatos" and not resultado_step.get("ok"):
+                if resultado_step.get("ok_parcial"):
+                    _log(f"Warning: {len(resultado_step.get('errores',[]))} formatos fallaron pero continua con parciales")
+                else:
+                    error = resultado_step.get("error", "generar_formatos retornó ok=false sin ok_parcial")
+                    db.marcar_error(task_id, paso=paso_num, error=error)
+                    return {"task_id": task_id, "estado": f"error_en_paso_{paso_num}", "error": error}
+            elif step_name in ("transcribir", "sintetizar_maestro", "convertir_pdf") and not resultado_step.get("ok"):
                 error = resultado_step.get("error", f"step {step_name} retornó ok=false")
                 db.marcar_error(task_id, paso=paso_num, error=error)
                 return {"task_id": task_id, "estado": f"error_en_paso_{paso_num}", "error": error}
@@ -183,6 +198,9 @@ def _build_kwargs(step_name: str, contexto: dict) -> dict:
         for campo, valor in verif.get("campos_completados", {}).items():
             if not _get_nested(datos_clinicos, campo) and valor:
                 _set_nested(datos_clinicos, campo, valor)
+        paciente_doc = (datos_clinicos.get("paciente") or {}).get("documento", "")
+        if not paciente_doc:
+            raise ValueError("datos_clinicos sin documento del paciente - no se generan formatos")
         return {"datos_clinicos": datos_clinicos, "task_id": task_id, "verificaciones": verif.get("verificaciones", [])}
     if step_name == "qa_formatos":
         return {"formatos_generados": contexto.get("generar_formatos", {}).get("formatos_generados", [])}

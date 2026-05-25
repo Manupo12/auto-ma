@@ -24,7 +24,7 @@ def _tiene_libreoffice() -> bool:
 def _convertir_uno(docx_path: str, output_dir: Path) -> str:
     bin_lo = shutil.which("libreoffice") or shutil.which("soffice")
     output_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [bin_lo, "--headless", "--convert-to", "pdf", "--outdir", str(output_dir), docx_path]
+    cmd = [bin_lo, "--headless", "--convert-to", "pdf:writer_pdf_Export", "--outdir", str(output_dir), docx_path]
     subprocess.run(cmd, capture_output=True, check=True, timeout=120)
     pdf_name = Path(docx_path).stem + ".pdf"
     return str(output_dir / pdf_name)

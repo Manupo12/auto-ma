@@ -130,7 +130,7 @@ class TaskDB:
     def tiene_task_activo(self, paciente_cc: str) -> bool:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT 1 FROM workflow_tasks WHERE paciente_cc = ? AND estado NOT IN ('listo','cancelado') LIMIT 1",
+                "SELECT 1 FROM workflow_tasks WHERE paciente_cc = ? AND estado NOT IN ('listo','cancelado','esperando_datos') AND estado NOT LIKE 'error_%' LIMIT 1",
                 (paciente_cc,),
             ).fetchone()
         return row is not None

@@ -72,10 +72,6 @@ async def _extraer_datos_visibles(page: Page) -> Dict:
         if cie10_simple:
             datos["cie10_candidatos"] = list(set(cie10_simple))[:5]
 
-    nombre_match = re.search(r"([A-ZÁÉÍÓÚÑ]{3,30}\s+[A-ZÁÉÍÓÚÑ]{3,30}\s+[A-ZÁÉÍÓÚÑ]{3,30})", body)
-    if nombre_match:
-        datos["nombre_detectado"] = nombre_match.group(1)
-
     datos["texto_completo_len"] = len(body)
     return datos
 

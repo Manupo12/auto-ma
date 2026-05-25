@@ -38,21 +38,18 @@ def convertir_todos(formatos: List[dict]) -> Dict:
     errores = []
     output_dir = Path(os.getenv("STORAGE_DIR", "./storage")) / "pdfs"
     for f in formatos:
-        if not f.get("qa_ok"):
+        if not f.get("archivo"):
             continue
         try:
             pdf = _convertir_uno(f["archivo"], output_dir)
             pdfs.append({**f, "pdf": pdf})
-            _log(f"✅ PDF: {Path(pdf).name}")
+            _log(f"PDF: {Path(pdf).name}")
         except Exception as e:
-            _log(f"❌ {f.get('formato','?')}: {e}")
+            _log(f"Error {f.get('formato','?')}: {e}")
             errores.append({"formato": f.get("formato"), "error": str(e)})
 
-    formatos_a_convertir = sum(1 for f in formatos if f.get("qa_ok"))
-    if formatos_a_convertir > 0:
-        ok = len(pdfs) >= formatos_a_convertir
-    else:
-        ok = True
+    formatos_a_convertir = sum(1 for f in formatos if f.get("archivo"))
+    ok = len(pdfs) >= formatos_a_convertir if formatos_a_convertir > 0 else True
     return {"ok": ok, "pdfs": pdfs, "errores": errores}
 
 

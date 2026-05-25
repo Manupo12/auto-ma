@@ -449,10 +449,11 @@ class ChatHistorialRequest(BaseModel):
 
 @app.post("/api/chat/historial")
 def guardar_historial(req: ChatHistorialRequest):
-    """Guarda la conversacion de un paciente en BD."""
+    """Guarda la conversacion de un paciente en BD (reemplaza, no acumula)."""
     import sqlite3
     db_path = os.getenv("WORKFLOW_DB_PATH", "./storage/workflow.db")
     with sqlite3.connect(db_path, timeout=30) as conn:
+        conn.execute("DELETE FROM chat_history WHERE paciente_cc=?", (req.paciente_cc,))
         for msg in req.mensajes:
             conn.execute(
                 "INSERT INTO chat_history (paciente_cc, rol, contenido, accion, archivo) VALUES (?,?,?,?,?)",

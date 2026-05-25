@@ -75,14 +75,15 @@ export default function ChatPage() {
   const [pacientesHistorial, setPacientesHistorial] = useState<{cc: string; mensajes: number; ultimo: string}[]>([]);
   const [loaded, setLoaded] = useState(false);
 
-  // Cargar mensajes guardados solo en cliente
+  // Cargar mensajes guardados solo si no hay CC activo
   useEffect(() => {
+    if (pacienteCc) return; // Si hay un CC activo, el historial ya cargo los mensajes
     const saved = loadMessages();
     if (saved.length > 0) {
       setMensajes(saved);
     }
     setLoaded(true);
-  }, []);
+  }, [pacienteCc]);
 
   const [ccAudio, setCcAudio] = useState("");
   const [mostrarCcAudio, setMostrarCcAudio] = useState(false);

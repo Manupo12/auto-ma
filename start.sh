@@ -12,8 +12,8 @@ python3 -m playwright install chromium --with-deps 2>/dev/null || true
 # Matar solo procesos propios en los puertos
 echo "=== RILO SAS ==="
 echo "Limpiando puertos..."
-PID_8000=$(lsof -ti:8000 2>/dev/null) && [ -n "$PID_8000" ] && kill $PID_8000 2>/dev/null || true
-PID_3000=$(lsof -ti:3000 2>/dev/null) && [ -n "$PID_3000" ] && kill $PID_3000 2>/dev/null || true
+fuser -k 8000/tcp 2>/dev/null || true
+fuser -k 3000/tcp 2>/dev/null || true
 sleep 2
 
 # Backend

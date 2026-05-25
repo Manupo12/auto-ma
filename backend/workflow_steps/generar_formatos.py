@@ -5,6 +5,7 @@ Wrapper sobre backend.doc_generator (que ya tiene las 7 funciones generar_*).
 Selecciona qué formatos generar según el estado del caso (NUEVO, SEGUIMIENTO, CIERRE, PRUEBA_TRABAJO).
 """
 import os
+import re
 import sys
 import json
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Dict, List
 
 
 STORAGE = Path(os.getenv("STORAGE_DIR", "./storage"))
+DOCS_DIR = STORAGE / "docs"
+DOCS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _log(msg: str):
@@ -123,6 +126,24 @@ def generar_documento(formato_corto: str, datos: dict, output_name: str = None) 
     return func(datos, output_name=output_name)
 
 
+def _sanitize_nombre(nombre: str) -> str:
+    """Convierte un nombre en slug para nombre de archivo."""
+    limpio = re.sub(r"[^a-zA-Z0-9\s]", "", nombre or "")
+    limpio = re.sub(r"\s+", " ", limpio).strip()
+    return limpio.replace(" ", "")[:40] or "paciente"
+
+
+def _siguiente_version(fmt: str, cc: str, nombre_slug: str) -> int:
+    """Encuentra el siguiente numero de version para este formato+paciente."""
+    patron = DOCS_DIR.glob(f"{fmt}_{nombre_slug}_v*.docx")
+    max_v = 0
+    for p in patron:
+        m = re.search(r"_v(\d+)\.docx$", p.name)
+        if m:
+            max_v = max(max_v, int(m.group(1)))
+    return max_v + 1
+
+
 def generar_todos(datos: dict, task_id: str) -> Dict:
     estado = datos.get("estado_caso", "SEGUIMIENTO")
     formatos = _seleccionar_formatos(estado)
@@ -134,14 +155,18 @@ def generar_todos(datos: dict, task_id: str) -> Dict:
     if not cc:
         return {"ok": False, "error": "CC vacio en datos_clinicos, no se generan formatos sin identificador", "formatos_generados": [], "errores": [], "total": 0, "estado_caso": estado}
 
+    nombre_pac = datos.get("paciente", {}).get("nombre", "")
+    nombre_slug = _sanitize_nombre(nombre_pac)
+
     for fmt in formatos:
         try:
-            output_name = f"{fmt}_{cc}_{task_id[:8]}"
+            version = _siguiente_version(fmt, cc, nombre_slug)
+            output_name = f"{fmt}_{nombre_slug}_v{version}"
             path = generar_documento(fmt, datos, output_name=output_name)
-            generados.append({"formato": fmt, "archivo": path})
-            _log(f"✅ {fmt}: {Path(path).name}")
+            generados.append({"formato": fmt, "archivo": path, "version": version})
+            _log(f"{fmt} v{version}: {Path(path).name}")
         except Exception as e:
-            _log(f"❌ {fmt}: {type(e).__name__}: {e}")
+            _log(f"{fmt}: {type(e).__name__}: {e}")
             errores.append({"formato": fmt, "error": f"{type(e).__name__}: {e}"})
 
     ok = len(errores) == 0

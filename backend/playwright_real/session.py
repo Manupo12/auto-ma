@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Tuple
 
+from datetime import datetime
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 from backend.playwright_real import selectores as S
@@ -110,6 +111,35 @@ async def _verificar_sesion(page: Page, portal: str) -> bool:
             return "MARIA GREIDY" in body or "Proveedor" in body
         except Exception:
             return False
+
+
+async def capturar_screenshot_error(page: Page, portal: str, contexto: str):
+    """Guarda screenshot cuando algo falla. Util para depurar selectores."""
+    debug_dir = Path("./storage/playwright_debug")
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = debug_dir / f"{portal}_{contexto}_{ts}.png"
+    try:
+        await page.screenshot(path=str(path), full_page=True)
+        _log(f"{portal.upper()}: screenshot guardado -> {path}")
+    except Exception as e:
+        _log(f"{portal.upper()}: no se pudo capturar screenshot: {e}")
+
+
+async def con_reintento(coro_fn, reintentos: int = 2, delay_s: float = 5.0):
+    """
+    Ejecuta coro_fn(). Si lanza excepcion, reintenta hasta `reintentos` veces
+    con `delay_s` segundos entre intentos. Devuelve resultado o lanza la ultima excepcion.
+    """
+    ultimo_error = None
+    for intento in range(reintentos + 1):
+        try:
+            return await coro_fn()
+        except Exception as e:
+            ultimo_error = e
+            if intento < reintentos:
+                await asyncio.sleep(delay_s)
+    raise ultimo_error
 
 
 async def login_y_guardar(portal: str) -> Path:

@@ -34,14 +34,26 @@ def _formatear_portales(datos: dict) -> str:
     discrepancias = datos.get("_meta", {}).get("discrepancias", [])
     bloques = ["📋 DATOS VERIFICADOS PORTALES:"]
     if medi:
-        nombre = " ".join(filter(None, [medi.get("nombre1",""), medi.get("nombre2",""), medi.get("apellido1",""), medi.get("apellido2","")])).strip() or medi.get("nombre", "")
+        nombre = (
+            " ".join(filter(None, [
+                medi.get("nombre1",""), medi.get("nombre2",""),
+                medi.get("apellido1",""), medi.get("apellido2","")
+            ])).strip()
+            or medi.get("nombre", "")
+        )
         if nombre: bloques.append(f"  Paciente: {nombre}")
-        if medi.get("telefono"): bloques.append(f"  Teléfono: {medi['telefono']}")
-        if medi.get("direccion"): bloques.append(f"  Dirección: {medi['direccion']}")
-        if medi.get("siniestro_medi"): bloques.append(f"  Siniestro (Medi): {medi['siniestro_medi']}")
-        if medi.get("eps_ips"): bloques.append(f"  EPS: {medi['eps_ips']}")
-        if medi.get("afp"):     bloques.append(f"  AFP: {medi['afp']}")
-        if medi.get("empresa"): bloques.append(f"  Empresa: {medi['empresa']}")
+        if medi.get("fecha_nacimiento"): bloques.append(f"  Fecha nacimiento: {medi['fecha_nacimiento']}")
+        if medi.get("telefono"): bloques.append(f"  Telefono: {medi['telefono']}")
+        if medi.get("direccion"): bloques.append(f"  Direccion: {medi['direccion']}")
+        if medi.get("email"):    bloques.append(f"  Email: {medi['email']}")
+        if medi.get("eps_ips") or medi.get("slct_eps_paciente"):
+            bloques.append(f"  EPS: {medi.get('eps_ips') or medi.get('slct_eps_paciente','')}")
+        if medi.get("afp") or medi.get("slct_afp_paciente"):
+            bloques.append(f"  AFP: {medi.get('afp') or medi.get('slct_afp_paciente','')}")
+        if medi.get("empresa") or medi.get("slct_empresa_paciente"):
+            bloques.append(f"  Empresa (Medi): {medi.get('empresa') or medi.get('slct_empresa_paciente','')}")
+        if medi.get("siniestro_medi") and medi["siniestro_medi"] != "[VERIFICAR]":
+            bloques.append(f"  Siniestro (Medi): {medi['siniestro_medi']}")
     if pos.get("datos_asegurado"):
         da = pos["datos_asegurado"]
         if da.get("empresa"): bloques.append(f"  Empresa (Pos): {da['empresa']}")
@@ -117,7 +129,7 @@ Devuelve SOLO un bloque JSON válido entre ```json ... ```. Estructura esperada:
 
 ```json
 {
-  "paciente": {"documento": "...", "nombre": "...", "edad": "...", "telefono": "...", "direccion": "...", "email": "...", "eps_ips": "...", "afp": "...", "ocupacion": "..."},
+  "paciente": {"documento": "...", "nombre": "...", "fecha_nacimiento": "YYYY-MM-DD o DD/MM/YYYY tal como aparece en el portal", "edad": "...", "telefono": "...", "direccion": "...", "email": "...", "eps_ips": "...", "afp": "...", "ocupacion": "..."},
   "empresa": {"nombre": "...", "nit": "...", "cargo": "..."},
   "siniestro": {"id_siniestro": "...", "fecha_evento": "...", "tipo_evento": "...", "diagnostico_cie10": "...", "descripcion": "..."},
   "estado_caso": "NUEVO|SEGUIMIENTO|CIERRE|PRUEBA_TRABAJO",
@@ -139,6 +151,12 @@ Devuelve SOLO un bloque JSON válido entre ```json ... ```. Estructura esperada:
 }
 ```
 
+REGLAS ESTRICTAS:
+- Datos de IDENTIDAD (nombre, CC, fecha_nacimiento, telefono, direccion): COPIAR EXACTAMENTE del bloque
+  📋 DATOS VERIFICADOS PORTALES. Si el audio dice algo diferente, IGNORAR el audio para estos campos.
+- Nombre del paciente: usar el nombre EXACTO del portal, no el del audio. Nunca cambies apellidos.
+- Si el portal tiene "PUENTES" como apellido, el JSON debe decir "PUENTES", nunca "FUENTES" ni variantes.
+
 REGLAS:
 - Si un dato está en portales Y en audio Y coinciden → úsalo.
 - Si discrepan → prevalece portal (es fuente oficial). Marca en _meta.discrepancias.
@@ -149,9 +167,10 @@ REGLAS:
 
 REGLAS ADICIONALES:
 - "proceso_productivo", "tareas_criticas", "apreciacion_trabajador": SOLO del cargo actual (empresa.nombre + empresa.cargo).
-- Si el audio menciona trabajos anteriores, ponlos en "metodologia" como historia laboral, NO en tareas_criticas.
+- Si el audio menciona trabajos anteriores, ponlos en "apreciacion_trabajador" como historial laboral previo, NO en tareas_criticas.
 - Si hay contradiccion entre proceso_productivo y empresa.cargo, prevalece empresa.cargo (oficial en el sistema de riesgos).
-- Si una tarea no corresponde al cargo actual, omitirla o marcarla como historial previo."""
+- Si una tarea no corresponde al cargo actual, omitirla o marcarla como historial previo.
+- Dominancia (lateralidad): extraer del audio con cuidado. Si no esta claro, poner "[VERIFICAR: derecha o izquierda]"."""
 
 
 def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, formatos_subidos: List, paciente_cc: str) -> Dict:
@@ -225,6 +244,25 @@ def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, fo
     if not sin:
         datos_clinicos.setdefault("siniestro", {})["id_siniestro"] = "[VERIFICAR EN PORTAL]"
         _log("Advertencia: siniestro no encontrado - marcado como pendiente de verificacion")
+
+    if datos_portales:
+        medi_portales = datos_portales.get("medifolios", {})
+        apellido_portal = medi_portales.get("apellido1", "").strip().upper()
+        nombre_llm = (datos_clinicos.get("paciente", {}).get("nombre") or "").upper()
+
+        if apellido_portal and apellido_portal not in nombre_llm:
+            _log(f"ADVERTENCIA: apellido portal '{apellido_portal}' no encontrado en nombre LLM '{nombre_llm}'")
+            nombre_portal = (
+                " ".join(filter(None, [
+                    medi_portales.get("nombre1",""), medi_portales.get("nombre2",""),
+                    medi_portales.get("apellido1",""), medi_portales.get("apellido2","")
+                ])).strip()
+            )
+            if nombre_portal:
+                datos_clinicos["paciente"]["nombre"] = nombre_portal
+                datos_clinicos.setdefault("_meta", {}).setdefault("correcciones_portal", []).append(
+                    f"nombre: LLM={nombre_llm} -> portal={nombre_portal}"
+                )
 
     return {
         "ok": True,

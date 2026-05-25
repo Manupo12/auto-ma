@@ -39,53 +39,76 @@ def _cargar_json_paciente(cc: str) -> dict:
 
 
 def _merge_paciente_con_llm(datos_llm: dict, cc: str) -> dict:
-    """Mezcla datos del JSON del paciente sobre lo que produjo el LLM."""
+    """
+    Mezcla: portal SOBREESCRIBE datos de identidad del LLM.
+    Solo los datos clinicos de evaluacion (que no estan en portales) se dejan del LLM.
+    """
     json_paciente = _cargar_json_paciente(cc)
     if not json_paciente or json_paciente.get("_vacio"):
         return datos_llm
 
     medi = json_paciente.get("medifolios", {})
     pos = json_paciente.get("positiva", {})
-    pac = json_paciente.get("paciente", {})
 
-    # Rellenar paciente si falta
-    if not datos_llm.get("paciente") or not datos_llm["paciente"].get("nombre"):
-        datos_llm["paciente"] = datos_llm.get("paciente") or {}
-        if not datos_llm["paciente"].get("nombre"):
-            nombre = medi.get("nombre1", "") or medi.get("nombre", "") or pac.get("nombre", "")
-            apellido = medi.get("apellido1", "") or pac.get("apellido", "")
-            if nombre:
-                datos_llm["paciente"]["nombre"] = f"{nombre} {apellido}".strip()
-        if not datos_llm["paciente"].get("documento"):
-            datos_llm["paciente"]["documento"] = cc
-        for k in ("direccion", "telefono", "email", "edad", "eps_ips", "afp"):
-            if not datos_llm["paciente"].get(k):
-                val = medi.get(k) or pac.get(k) or ""
-                if val:
-                    datos_llm["paciente"][k] = val
+    pac = datos_llm.setdefault("paciente", {})
 
-    # Rellenar empresa si falta
-    if not datos_llm.get("empresa") or not datos_llm["empresa"].get("nombre"):
-        datos_llm["empresa"] = datos_llm.get("empresa") or {}
-        empresa = medi.get("empresa") or pac.get("empresa") or json_paciente.get("empresa", {}).get("nombre", "")
-        if empresa:
-            datos_llm["empresa"]["nombre"] = empresa
-        if not datos_llm["empresa"].get("cargo"):
-            cargo = medi.get("cargo") or pac.get("cargo") or pac.get("ocupacion") or ""
-            if cargo:
-                datos_llm["empresa"]["cargo"] = cargo
+    # CAMPOS DE IDENTIDAD: SIEMPRE usar portal
+    nombre_portal = (
+        " ".join(filter(None, [
+            medi.get("nombre1", ""), medi.get("nombre2", ""),
+            medi.get("apellido1", ""), medi.get("apellido2", "")
+        ])).strip()
+        or medi.get("nombre", "")
+    )
+    if nombre_portal:
+        pac["nombre"] = nombre_portal
 
-    # Rellenar siniestro si falta
-    if not datos_llm.get("siniestro") or not datos_llm["siniestro"].get("id_siniestro"):
-        datos_llm["siniestro"] = datos_llm.get("siniestro") or {}
-        if not datos_llm["siniestro"].get("id_siniestro"):
-            siniestros_pos = pos.get("siniestros", [])
-            siniestro_pos = siniestros_pos[0].get("id", "") if siniestros_pos else ""
-            siniestro = (medi.get("siniestro_medi") if medi.get("siniestro_medi") and medi.get("siniestro_medi") != "[VERIFICAR]" else "") \
-                     or pos.get("siniestro_id", "") \
-                     or siniestro_pos
-            if siniestro and siniestro != "[VERIFICAR]":
-                datos_llm["siniestro"]["id_siniestro"] = siniestro
+    pac["documento"] = medi.get("numero_id", "") or cc
+
+    if medi.get("fecha_nacimiento"):
+        pac["fecha_nacimiento"] = medi["fecha_nacimiento"]
+
+    for campo_portal, campo_pac in [
+        ("telefono", "telefono"),
+        ("direccion", "direccion"),
+        ("email", "email"),
+        ("edad", "edad"),
+    ]:
+        if medi.get(campo_portal):
+            pac[campo_pac] = medi[campo_portal]
+
+    for campo_portal, campo_pac in [
+        ("eps_ips", "eps_ips"), ("slct_eps_paciente", "eps_ips"),
+        ("afp", "afp"),         ("slct_afp_paciente", "afp"),
+    ]:
+        if medi.get(campo_portal) and not pac.get(campo_pac):
+            pac[campo_pac] = medi[campo_portal]
+
+    # EMPRESA: portal cuando disponible
+    emp = datos_llm.setdefault("empresa", {})
+    empresa_portal = (
+        medi.get("empresa") or medi.get("slct_empresa_paciente") or
+        (pos.get("datos_asegurado") or {}).get("empresa") or
+        json_paciente.get("empresa", {}).get("nombre", "")
+    )
+    if empresa_portal and empresa_portal not in ("Usuario Acciones", "[VERIFICAR]"):
+        emp["nombre"] = empresa_portal
+
+    nit_portal = (pos.get("datos_asegurado") or {}).get("nit", "")
+    if nit_portal:
+        emp["nit"] = nit_portal
+
+    # SINIESTRO: solo portal-oficial, no [VERIFICAR]
+    sin = datos_llm.setdefault("siniestro", {})
+    siniestro_portal = ""
+    if medi.get("siniestro_medi") and medi["siniestro_medi"] != "[VERIFICAR]":
+        siniestro_portal = medi["siniestro_medi"]
+    elif pos.get("siniestro_id"):
+        siniestro_portal = pos["siniestro_id"]
+    elif (pos.get("siniestros") or []):
+        siniestro_portal = pos["siniestros"][0].get("id", "")
+    if siniestro_portal:
+        sin["id_siniestro"] = siniestro_portal
 
     return datos_llm
 
@@ -189,4 +212,18 @@ def ejecutar(datos_clinicos: dict, task_id: str, verificaciones: list = None) ->
         return {"ok": False, "error": "CC vacio en datos_clinicos, no se generan formatos sin identificador"}
     if cc:
         datos_clinicos = _merge_paciente_con_llm(datos_clinicos, cc)
+
+    advertencias = []
+    if datos_clinicos.get("siniestro", {}).get("id_siniestro", "").startswith("["):
+        advertencias.append("Siniestro no verificado en portal - confirmar numero con Sandra")
+    if not datos_clinicos.get("siniestro", {}).get("fecha_evento"):
+        advertencias.append("Fecha del evento no disponible - completar manualmente")
+    if not datos_clinicos.get("siniestro", {}).get("diagnostico_cie10") or \
+       "[FALTA" in str(datos_clinicos.get("siniestro", {}).get("diagnostico_cie10", "")):
+        advertencias.append("Diagnostico CIE-10 no verificado - completar desde Positiva")
+
+    if advertencias:
+        datos_clinicos["_advertencias_documento"] = advertencias
+        _log(f"Advertencias en generacion: {advertencias}")
+
     return generar_todos(datos_clinicos, task_id)

@@ -133,3 +133,58 @@ POS_TABLA_SINIESTROS = {
 TIMEOUT_NAVEGACION_MS = 30_000
 TIMEOUT_ELEMENTO_MS = 10_000
 REINTENTOS = [2, 5, 15]  # segundos entre reintentos
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# MEDIFOLIOS — Historia Clinica
+# ═══════════════════════════════════════════════════════════════════════
+
+MEDI_HC = {
+    "urls_posibles": [
+        "https://www.server0medifolios.net/index.php/SALUD_HOME/historia_clinica",
+        "https://www.server0medifolios.net/index.php/SALUD_HISTORIA/historia",
+    ],
+    "menu_hc": "a:has-text('Historia Clinica'), a:has-text('Historia clinica'), a:has-text('HC')",
+    "tabla_dx": "table:has(th:has-text('Diagnostico')), table:has(th:has-text('CIE'))",
+    "input_cc_hc": "#numero_id, input[name='cc'], input[name='numero_id']",
+}
+
+MEDI_AGENDA_DETALLE = {
+    "selector_filas": "table.tabla-agenda tbody tr, table tbody tr",
+    "campo_observaciones": [
+        "textarea[name='observaciones']",
+        "#observaciones",
+        "textarea:near(:text('Observaciones'))",
+        ".modal textarea",
+        "[class*='detalle'] textarea",
+    ],
+    "boton_cerrar_modal": "button:has-text('Cerrar'), button:has-text('Close'), .modal .close, .btn-close",
+}
+
+# ═══════════════════════════════════════════════════════════════════════
+# ARL POSITIVA — Secciones adicionales
+# ═══════════════════════════════════════════════════════════════════════
+
+POS_REHAB_INTEGRAL = {
+    "tab": [
+        "a:has-text('REHABILITACION INTEGRAL')",
+        "a:has-text('Rehabilitacion Integral')",
+        "a:has-text('REHABILITACION INTEGRAL')",
+    ],
+}
+
+POS_AUTORIZACIONES = {
+    "tab": [
+        "a:has-text('GESTION AUTORIZACIONES')",
+        "a:has-text('Gestion Autorizaciones')",
+    ],
+}
+
+POS_RHI_COMPLETO = {
+    "url": "https://positivacuida.positiva.gov.co/web/rhi/consultarCaso/init",
+    "input_cc": "#numeroDocumento, input[name='numeroDocumento']",
+    "buscar": "button:has-text('Buscar'), button:has-text('Consultar')",
+}
+
+# Screenshot debug dir
+PLAYWRIGHT_DEBUG_DIR = "./storage/playwright_debug"

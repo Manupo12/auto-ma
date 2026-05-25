@@ -110,6 +110,16 @@ def _extraer_de_portales(cc: str) -> dict:
     }
 
 
+def _set_nested(d: dict, path: str, value):
+    """Set a nested dict value by dot-notation path (e.g. 'paciente.nombre')."""
+    partes = path.split(".")
+    for p in partes[:-1]:
+        if p not in d or not isinstance(d[p], dict):
+            d[p] = {}
+        d = d[p]
+    d[partes[-1]] = value
+
+
 def _normalizar(texto: str) -> str:
     """Normaliza para comparacion: minusculas, sin tildes, sin espacios extra."""
     if not texto:
@@ -180,6 +190,13 @@ def ejecutar(datos_clinicos: dict, paciente_cc: str) -> dict:
             "fuente_portal": fuente_portal,
             "estado": estado,
         })
+
+    for v in verificaciones:
+        if v["estado"] == "discrepancia" and v["campo"] in ("nombre", "documento", "telefono", "direccion"):
+            _set_nested(datos_enriquecidos, f"paciente.{v['campo']}", v["portal"])
+            v["estado"] = "corregido_por_portal"
+            v["nota"] = f"Auto-corregido: LLM={v['sintesis']} -> Portal={v['portal']}"
+            _log(f"Auto-correccion identidad: {v['campo']} '{v['sintesis']}' -> '{v['portal']}'")
 
     resumen = {
         "confirmados": sum(1 for v in verificaciones if v["estado"] == "confirmado"),

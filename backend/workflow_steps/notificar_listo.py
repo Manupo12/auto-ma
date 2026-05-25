@@ -14,7 +14,7 @@ def _log(msg: str):
 def notificar(task_id: str, paciente_nombre: str, paciente_cc: str,
               formatos_generados: List[dict], warnings: List[str],
               dashboard_url: str = None, resumen_verificacion: dict = None,
-              discrepancias: list = None) -> bool:
+              discrepancias: list = None, requiere_confirmacion_motivo: str = "") -> bool:
     from backend.notificador import enviar_telegram
 
     url = dashboard_url or os.getenv("DASHBOARD_URL", "")
@@ -35,6 +35,9 @@ def notificar(task_id: str, paciente_nombre: str, paciente_cc: str,
         if r.get('faltantes', 0) > 0:
             lines.append(f"Faltan completar {r['faltantes']} campos")
 
+    if requiere_confirmacion_motivo:
+        lines.append(f"\nCONFIRMACION REQUERIDA: {requiere_confirmacion_motivo}")
+
     if warnings:
         lines.append(f"\n{len(warnings)} advertencia(s):")
         for w in warnings[:3]:
@@ -51,7 +54,9 @@ def notificar(task_id: str, paciente_nombre: str, paciente_cc: str,
 
 def ejecutar(task_id: str, paciente_nombre: str, paciente_cc: str,
               formatos_generados: list, warnings: list,
-              resumen_verificacion: dict = None, discrepancias: list = None) -> dict:
+              resumen_verificacion: dict = None, discrepancias: list = None,
+              requiere_confirmacion_motivo: str = "") -> dict:
     ok = notificar(task_id, paciente_nombre, paciente_cc, formatos_generados, warnings,
-                   resumen_verificacion=resumen_verificacion, discrepancias=discrepancias)
+                   resumen_verificacion=resumen_verificacion, discrepancias=discrepancias,
+                   requiere_confirmacion_motivo=requiere_confirmacion_motivo)
     return {"ok": ok, "telegram_enviado": ok}

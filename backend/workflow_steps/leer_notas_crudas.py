@@ -24,11 +24,30 @@ def _leer_texto(path: Path, max_chars: int = 2000) -> str:
         if path.suffix.lower() == ".docx":
             from docx import Document
             doc = Document(str(path))
-            text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-            return text[:max_chars]
+            partes = []
+            for p in doc.paragraphs:
+                if p.text.strip():
+                    partes.append(p.text.strip())
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        t = cell.text.strip()
+                        if t:
+                            partes.append(t)
+            return "\n".join(partes)[:max_chars]
     except Exception as e:
         _log(f"Error leyendo {path.name}: {e}")
     return ""
+
+
+def _tiene_cc(path: Path, cc: str) -> bool:
+    """Verifica si un archivo contiene la CC (nombre o contenido completo)."""
+    cc_norm = cc.replace(".","").replace("-","").replace("'","")
+    if cc_norm in path.name.replace(".","").replace("-",""):
+        return True
+    contenido = _leer_texto(path, max_chars=3000)
+    contenido_limpio = contenido.replace(".","").replace("-","").replace("'","").replace(" ","")
+    return cc_norm in contenido_limpio
 
 
 def _fast_scan(directory: Path, max_depth: int = 2, timeout_s: float = 5.0) -> list:
@@ -87,18 +106,10 @@ def leer_notas_crudas(cc: str, max_archivos: int = 5) -> tuple:
             except OSError:
                 continue
 
-            if cc in path.name:
-                contenido = _leer_texto(path)
-                if contenido:
-                    candidatos.append({"nombre": path.name, "ruta": str(path), "contenido": contenido})
-                    continue
-
-            contenido = _leer_texto(path, max_chars=500)
-            cc_norm = cc.replace(".","").replace("-","").replace("\x27","")
-            contenido_limpio = contenido.replace(".","").replace("-","").replace("\x27","")
-            if cc_norm in contenido_limpio:
+            if _tiene_cc(path, cc):
                 contenido_completo = _leer_texto(path)
-                candidatos.append({"nombre": path.name, "ruta": str(path), "contenido": contenido_completo})
+                if contenido_completo:
+                    candidatos.append({"nombre": path.name, "ruta": str(path), "contenido": contenido_completo})
     except Exception as e:
         _log(f"Error escaneando: {e}")
 

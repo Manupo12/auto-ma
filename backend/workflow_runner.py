@@ -130,6 +130,17 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
                     contexto["_requiere_confirmacion"] = True
                     contexto["_requiere_confirmacion_motivo"] = motivo
 
+            if step_name == "verificar_portales":
+                resumen = resultado_step.get("resumen", {})
+                pendientes = resumen.get("pendientes_portal", 0)
+                total = resumen.get("total", 1) or 1
+                discrepancias_verif = resumen.get("discrepancias", 0)
+                if pendientes > total * 0.5 or discrepancias_verif >= 2:
+                    motivo = f"Verificacion incompleta: {pendientes}/{total} campos pendientes, {discrepancias_verif} discrepancias"
+                    _log(f"Workflow requiere confirmacion: {motivo}")
+                    contexto["_requiere_confirmacion"] = True
+                    contexto["_requiere_confirmacion_motivo"] = motivo
+
         except Exception as e:
             _log(f"PASO {paso_num} FALLÓ: {type(e).__name__}: {e}")
             db.marcar_error(task_id, paso=paso_num, error=f"{type(e).__name__}: {e}")
@@ -219,6 +230,7 @@ def _build_kwargs(step_name: str, contexto: dict) -> dict:
             "warnings": contexto.get("transcribir", {}).get("warnings", []),
             "resumen_verificacion": verif.get("resumen", {}),
             "discrepancias": verif.get("verificaciones", []),
+            "requiere_confirmacion_motivo": contexto.get("_requiere_confirmacion_motivo", ""),
         }
     raise ValueError(f"Paso desconocido en _build_kwargs: '{step_name}'")
 

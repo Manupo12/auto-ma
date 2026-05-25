@@ -147,6 +147,21 @@ async def extraer_paciente_completo(cc: str, guardar: bool = True) -> Dict:
     # Detectar discrepancias
     discrepancias = _detectar_discrepancias(datos_medi, datos_pos)
 
+    pos_tiene_datos = bool(
+        datos_pos.get("siniestros") or datos_pos.get("siniestro_id") or
+        datos_pos.get("diagnosticos") or datos_pos.get("cie10_candidatos") or
+        datos_pos.get("fecha_siniestro")
+    )
+    medi_tiene_datos = bool(
+        datos_medi.get("nombre1") or datos_medi.get("nombre")
+    )
+
+    parcial = (
+        bool(datos_medi.get("error") or datos_pos.get("error")) or
+        not pos_tiene_datos or
+        not medi_tiene_datos
+    )
+
     # Fusionar
     fusionado = {
         "cc": cc,
@@ -156,9 +171,13 @@ async def extraer_paciente_completo(cc: str, guardar: bool = True) -> Dict:
             "extraido_en": datetime.now().isoformat(),
             "fuentes": ["medifolios", "positiva"],
             "discrepancias": discrepancias,
-            "parcial": bool(datos_medi.get("error") or datos_pos.get("error")),
+            "parcial": parcial,
         },
     }
+
+    if not pos_tiene_datos:
+        fusionado["_meta"]["pos_sin_datos"] = True
+        fusionado["_meta"]["advertencia_portales"] = "Positiva no devolvio siniestros ni diagnostico"
 
     if guardar:
         _guardar_json(cc, fusionado)

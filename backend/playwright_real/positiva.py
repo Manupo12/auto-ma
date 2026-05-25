@@ -34,6 +34,12 @@ async def _buscar_en_consulta_integral(page: Page, cc: str) -> bool:
         await cc_input.press("Enter")
 
     await page.wait_for_timeout(8000)
+    body = await page.text_content("body") or ""
+    body_lower = body.lower()
+    if any(msg in body_lower for msg in ["no se encontro", "sin resultados", "0 registros", "no se encontraron", "no hay datos", "no existe"]):
+        return False
+    if cc not in body:
+        return False
     return True
 
 
@@ -85,15 +91,31 @@ async def _extraer_siniestros_tabla(page: Page) -> list:
             tabs = await page.query_selector_all(f"a:has-text('{tab_label}'), li:has-text('{tab_label}')")
             if tabs:
                 await tabs[0].click()
-                await page.wait_for_timeout(5000)
                 break
     except Exception:
         pass
 
     try:
-        filas = await page.query_selector_all(S.POS_TABLA_SINIESTROS["filas"])
+        await page.wait_for_selector("table tbody tr", timeout=10000)
     except Exception:
-        filas = await page.query_selector_all("tbody tr")
+        pass
+
+    selectores_tabla = [
+        S.POS_TABLA_SINIESTROS["filas"],
+        "table.siniestros tbody tr",
+        "[data-tab='siniestros'] tbody tr",
+        "#siniestros tbody tr",
+        ".siniestros-table tbody tr",
+        "table tbody tr",
+    ]
+    filas = []
+    for sel in selectores_tabla:
+        try:
+            filas = await page.query_selector_all(sel)
+            if filas:
+                break
+        except Exception:
+            continue
 
     for fila in filas:
         try:
@@ -114,6 +136,12 @@ async def _extraer_siniestros_tabla(page: Page) -> list:
                 siniestros.append(siniestro)
         except Exception:
             continue
+
+    if not siniestros:
+        body = await page.text_content("body") or ""
+        siniestro_match = re.search(r'\b(5\d{8})\b', body)
+        if siniestro_match:
+            siniestros = [{"id": siniestro_match.group(1), "fecha": "", "tipo": "AT"}]
 
     return siniestros
 
@@ -150,6 +178,34 @@ async def _buscar_en_rhi(page: Page, cc: str) -> Dict:
     return rhi
 
 
+async def _extraer_datos_asegurado(page: Page) -> Dict:
+    """Extrae datos de la pestana DATOS ASEGURADO en Positiva."""
+    try:
+        tab = page.locator(S.POS_TABS["datos_asegurado"])
+        if await tab.count() > 0:
+            await tab.first.click()
+            await page.wait_for_timeout(4000)
+    except Exception:
+        pass
+
+    body = await page.text_content("body") or ""
+    datos = {}
+
+    empresa_match = re.search(r"[Ee]mpresa[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s,\.]+?)(?:\n|CC|NIT|\d{5})", body)
+    if empresa_match:
+        datos["empresa"] = empresa_match.group(1).strip()
+
+    nit_match = re.search(r"NIT[:\s]*(\d{6,12}[-]?\d?)", body)
+    if nit_match:
+        datos["nit"] = nit_match.group(1)
+
+    cargo_match = re.search(r"[Cc]argo[:\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s]+?)(?:\n|CC|$)", body)
+    if cargo_match:
+        datos["cargo_asegurado"] = cargo_match.group(1).strip()
+
+    return datos
+
+
 async def get_paciente_completo(page: Page, cc: str) -> Dict:
     """
     Funcion principal. Extrae datos del paciente desde Positiva.
@@ -158,7 +214,9 @@ async def get_paciente_completo(page: Page, cc: str) -> Dict:
 
     encontrado = await _buscar_en_consulta_integral(page, cc)
     if not encontrado:
-        datos["error_busqueda"] = "No se pudo buscar en Consulta Integral"
+        datos["_sin_datos_clinicos"] = True
+        datos["_advertencia"] = "Paciente no encontrado en Consulta Integral de Positiva"
+        datos["error_busqueda"] = "Paciente no encontrado en Consulta Integral"
         return datos
 
     visible = await _extraer_datos_visibles(page)
@@ -172,5 +230,9 @@ async def get_paciente_completo(page: Page, cc: str) -> Dict:
     if siniestros:
         datos["siniestros"] = siniestros
         datos["siniestro_id"] = siniestros[0]["id"]
+
+    datos_asegurado = await _extraer_datos_asegurado(page)
+    if datos_asegurado:
+        datos["datos_asegurado"] = datos_asegurado
 
     return datos

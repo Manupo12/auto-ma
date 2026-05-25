@@ -42,9 +42,18 @@ def _formatear_portales(datos: dict) -> str:
         if medi.get("eps_ips"): bloques.append(f"  EPS: {medi['eps_ips']}")
         if medi.get("afp"):     bloques.append(f"  AFP: {medi['afp']}")
         if medi.get("empresa"): bloques.append(f"  Empresa: {medi['empresa']}")
+    if pos.get("datos_asegurado"):
+        da = pos["datos_asegurado"]
+        if da.get("empresa"): bloques.append(f"  Empresa (Pos): {da['empresa']}")
+        if da.get("cargo_asegurado"): bloques.append(f"  Cargo (Pos): {da['cargo_asegurado']}")
+        if da.get("nit"): bloques.append(f"  NIT: {da['nit']}")
     if pos.get("siniestros"):
         for s in pos["siniestros"][:2]:
-            bloques.append(f"  Siniestro (Pos): {s.get('id','?')} | {s.get('fecha','?')} | {s.get('diagnostico','?')[:50]}")
+            partes = [f"id={s.get('id','?')}", f"fecha={s.get('fecha','?')}"]
+            if s.get("tipo"): partes.append(f"tipo={s['tipo']}")
+            if s.get("diagnostico"): partes.append(f"dx={s['diagnostico'][:50]}")
+            if s.get("segmento"): partes.append(f"segmento={s['segmento']}")
+            bloques.append(f"  Siniestro (Pos): {' | '.join(partes)}")
     if discrepancias:
         bloques.append("\n⚠️ DISCREPANCIAS DETECTADAS:")
         for d in discrepancias:
@@ -136,7 +145,13 @@ REGLAS:
 - Si solo está en audio (subjetivo) → úsalo y marca confianza_global menor.
 - Si falta dato crítico → escribe "[FALTA: descripción específica]" y agrégalo a campos_faltantes.
 - NUNCA inventes datos clínicos. Si no sabes, di [FALTA].
-- Español colombiano clínico."""
+- Español colombiano clínico.
+
+REGLAS ADICIONALES:
+- "proceso_productivo", "tareas_criticas", "apreciacion_trabajador": SOLO del cargo actual (empresa.nombre + empresa.cargo).
+- Si el audio menciona trabajos anteriores, ponlos en "metodologia" como historia laboral, NO en tareas_criticas.
+- Si hay contradiccion entre proceso_productivo y empresa.cargo, prevalece empresa.cargo (oficial en el sistema de riesgos).
+- Si una tarea no corresponde al cargo actual, omitirla o marcarla como historial previo."""
 
 
 def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, formatos_subidos: List, paciente_cc: str) -> Dict:

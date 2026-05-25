@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, Bot, User, Loader2, Trash2, FileText, Mic, Paperclip, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { authFetch } from "@/lib/auth";
 
 interface ChatMessage {
   rol: "usuario" | "asistente";
@@ -111,12 +112,13 @@ export default function ChatPage() {
   }, [enviando, mensajes]);
 
   // Cargar lista de pacientes con historial
-  useEffect(() => {
-    fetch(`${API}/api/chat/historial`)
+  const refrescarHistorial = useCallback(() => {
+    authFetch(`${API}/api/chat/historial`)
       .then(r => r.json())
       .then(d => { if (d.ok) setPacientesHistorial(d.pacientes || []); })
       .catch(() => {});
   }, []);
+  useEffect(() => { refrescarHistorial(); }, [refrescarHistorial]);
 
   // Guardar conversacion cuando hay mensajes con CC
   useEffect(() => {
@@ -124,11 +126,11 @@ export default function ChatPage() {
     const cc = pacienteCc || mensajes.find(m => m.pacienteCC)?.pacienteCC;
     if (!cc) return;
     const timer = setTimeout(() => {
-      fetch(`${API}/api/chat/historial`, {
+      authFetch(`${API}/api/chat/historial`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paciente_cc: cc, mensajes })
-      }).catch(() => {});
+      }).then(() => refrescarHistorial()).catch(() => {});
     }, 2000);
     return () => clearTimeout(timer);
   }, [mensajes, pacienteCc]);
@@ -137,7 +139,7 @@ export default function ChatPage() {
   const cargarHistorialPaciente = async (cc: string) => {
     setPacienteCc(cc);
     try {
-      const r = await fetch(`${API}/api/chat/historial/${cc}`);
+      const r = await authFetch(`${API}/api/chat/historial/${cc}`);
       const d = await r.json();
       if (d.ok && d.mensajes?.length > 0) {
         setMensajes(d.mensajes);
@@ -166,9 +168,10 @@ export default function ChatPage() {
 
     const poll = async () => {
       try {
-        const res = await fetch(`${API}/api/tasks/${taskId}`, {
-          signal: AbortSignal.timeout(15000),
-        });
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 12000);
+        const res = await fetch(`${API}/api/tasks/${taskId}`, { signal: controller.signal });
+        clearTimeout(t);
         const data = await res.json();
         const task = data.task;
         erroresConsecutivos = 0;
@@ -411,7 +414,7 @@ export default function ChatPage() {
     if (!fpCc.trim()) return;
     setFpLoading(true);
     try {
-      const r = await fetch(`${API}/api/archivos/paciente/${fpCc.trim()}`);
+      const r = await authFetch(`${API}/api/archivos/paciente/${fpCc.trim()}`);
       const d = await r.json();
       setFpArchivos(d.archivos || []);
     } finally {
@@ -450,7 +453,7 @@ export default function ChatPage() {
           {pacienteCc && (
             <button
               onClick={async () => {
-                await fetch(`${API}/api/chat/historial/${pacienteCc}`, { method: "DELETE" });
+                await authFetch(`${API}/api/chat/historial/${pacienteCc}`, { method: "DELETE" });
                 setMensajes([{ rol: "asistente", contenido: `Chat limpio para CC ${pacienteCc}.`, timestamp: new Date().toISOString() }]);
                 setPacientesHistorial(prev => prev.filter(p => p.cc !== pacienteCc));
               }}
@@ -504,15 +507,26 @@ export default function ChatPage() {
                   <div className="mt-2 space-y-1">
                     {msg.formatos.map((f, fi) => (
                       f.archivo ? (
-                        <a
+                        <button
                           key={fi}
-                          href={`/api/download/${encodeURIComponent(f.archivo?.split("/").pop() ?? "")}`}
-                          download
-                          className="text-xs text-blue-600 hover:underline block"
+                          onClick={async () => {
+                            const nombre = f.archivo?.split("/").pop() ?? "";
+                            try {
+                              const r = await authFetch(`${API}/api/download/${encodeURIComponent(nombre)}`);
+                              if (r.ok) {
+                                const blob = await r.blob();
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url; a.download = nombre; a.click();
+                                URL.revokeObjectURL(url);
+                              }
+                            } catch {}
+                          }}
+                          className="text-xs text-blue-600 hover:underline block text-left"
                         >
                           <FileText size={10} className="inline mr-1" />
                           {f.formato || f.archivo?.split("/").pop() || "Archivo"}
-                        </a>
+                        </button>
                       ) : (
                         <span key={fi} className="text-xs text-slate-400 block">
                           <FileText size={10} className="inline mr-1" />

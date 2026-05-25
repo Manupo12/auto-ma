@@ -27,17 +27,26 @@ async def _cargar_paciente_en_form(page: Page, cc: str) -> bool:
 
     await page.wait_for_timeout(1000)
 
+    # Intentar click en buscar, o presionar Enter
+    clicked = False
     for b in await page.query_selector_all("button"):
         t = (await b.text_content() or "").strip().lower()
         if "buscar" in t:
-            await b.click()
-            break
-    else:
-        await page.press(S.MEDI_PACIENTES["numero_id_input"], "Enter")
+            try:
+                await b.click(timeout=5000)
+                clicked = True
+                break
+            except Exception:
+                pass
+    if not clicked:
+        try:
+            await page.press(S.MEDI_PACIENTES["numero_id_input"], "Enter")
+        except Exception:
+            return False
 
-    await page.wait_for_timeout(5000)
+    await page.wait_for_timeout(6000)
 
-    nombre = await page.input_value(S.MEDI_PACIENTES["nombre1"], timeout=5000).catch(lambda: "")
+    nombre = await page.input_value(S.MEDI_PACIENTES["nombre1"], timeout=8000).catch(lambda: "")
     return bool(nombre)
 
 
@@ -89,9 +98,9 @@ async def _extraer_siniestro_de_agenda(page: Page, cc: str):
         return siniestro_match.group(1), "agenda"
 
     try:
-        cita_link = await page.query_selector(f"tr:has-text('{cc}') a, a:has-text('{cc}')")
-        if cita_link:
-            await cita_link.click()
+        cita_link = page.locator(f"tr:has-text('{cc}')").first
+        if await cita_link.count() > 0:
+            await cita_link.click(timeout=10000)
             await page.wait_for_timeout(5000)
             obs_body = await page.text_content("body") or ""
             siniestro_match = re.search(r"[Ss]iniestro[:\s]*(\d{8,12})", obs_body)

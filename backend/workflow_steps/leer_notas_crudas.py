@@ -16,7 +16,7 @@ def _log(msg: str):
     print(f"[NOTAS {datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
 
 
-def _leer_texto(path: Path, max_chars: int = 2000) -> str:
+def _leer_texto(path: Path, max_chars: int = 8000) -> str:
     """Lee primeros N chars de .txt/.md/.docx."""
     try:
         if path.suffix.lower() in (".txt", ".md"):
@@ -45,8 +45,12 @@ def _tiene_cc(path: Path, cc: str) -> bool:
     cc_norm = cc.replace(".","").replace("-","").replace("'","")
     if cc_norm in path.name.replace(".","").replace("-",""):
         return True
-    contenido = _leer_texto(path, max_chars=3000)
-    contenido_limpio = contenido.replace(".","").replace("-","").replace("'","").replace(" ","")
+    contenido = _leer_texto(path, max_chars=5000)
+    contenido_limpio = (
+        contenido
+        .replace(".","").replace("-","").replace("'","")
+        .replace(" ","").replace("\n","").replace("\r","").replace("\t","")
+    )
     return cc_norm in contenido_limpio
 
 
@@ -107,7 +111,7 @@ def leer_notas_crudas(cc: str, max_archivos: int = 5) -> tuple:
                 continue
 
             if _tiene_cc(path, cc):
-                contenido_completo = _leer_texto(path)
+                contenido_completo = _leer_texto(path, max_chars=8000)
                 if contenido_completo:
                     candidatos.append({"nombre": path.name, "ruta": str(path), "contenido": contenido_completo})
     except Exception as e:

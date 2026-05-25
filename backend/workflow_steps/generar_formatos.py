@@ -81,8 +81,8 @@ def _merge_paciente_con_llm(datos_llm: dict, cc: str) -> dict:
         ("eps_ips", "eps_ips"), ("slct_eps_paciente", "eps_ips"),
         ("afp", "afp"),         ("slct_afp_paciente", "afp"),
     ]:
-        if medi.get(campo_portal) and not pac.get(campo_pac):
-            pac[campo_pac] = medi[campo_portal]
+        if medi.get(campo_portal):
+            pac[campo_pac] = medi[campo_portal]  # SOBREESCRIBE si portal tiene el dato
 
     # EMPRESA: portal cuando disponible
     emp = datos_llm.setdefault("empresa", {})
@@ -107,6 +107,17 @@ def _merge_paciente_con_llm(datos_llm: dict, cc: str) -> dict:
         siniestro_portal = pos["siniestro_id"]
     elif (pos.get("siniestros") or []):
         siniestro_portal = pos["siniestros"][0].get("id", "")
+    # Fallback: siniestro en tabla de autorizaciones
+    if not siniestro_portal and pos.get("autorizaciones"):
+        for aut in pos["autorizaciones"][:3]:
+            posible_sin = str(aut.get("descripcion", "")).strip()
+            if re.match(r'^\d{8,12}$', posible_sin):
+                siniestro_portal = posible_sin
+                posible_fecha = str(aut.get("estado", "")).strip()
+                if re.match(r'\d{2}/\d{2}/\d{4}', posible_fecha):
+                    if not sin.get("fecha_evento"):
+                        sin["fecha_evento"] = posible_fecha
+                break
     if siniestro_portal:
         sin["id_siniestro"] = siniestro_portal
 

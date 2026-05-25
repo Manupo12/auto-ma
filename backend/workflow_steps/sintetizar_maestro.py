@@ -14,6 +14,7 @@ Si el contexto excede 30K chars, hace resumen progresivo antes.
 """
 import json
 import os
+import re
 import sys
 import subprocess
 import tempfile
@@ -66,11 +67,60 @@ def _formatear_portales(datos: dict) -> str:
             if s.get("diagnostico"): partes.append(f"dx={s['diagnostico'][:50]}")
             if s.get("segmento"): partes.append(f"segmento={s['segmento']}")
             bloques.append(f"  Siniestro (Pos): {' | '.join(partes)}")
+    # Siniestro en autorizaciones cuando Positiva no devuelve siniestros directos
+    if not pos.get("siniestros") and pos.get("autorizaciones"):
+        for aut in pos["autorizaciones"][:3]:
+            posible_sin = aut.get("descripcion", "").strip()
+            posible_fecha = aut.get("estado", "").strip()
+            if posible_sin and re.match(r'^\d{8,12}$', posible_sin):
+                bloques.append(f"  Siniestro (Pos-aut): {posible_sin}")
+                if re.match(r'\d{2}/\d{2}/\d{4}', posible_fecha):
+                    bloques.append(f"  Fecha evento (Pos-aut): {posible_fecha}")
+                break
+    rhi = pos.get("rhi", {})
+    if rhi.get("fechas_encontradas"):
+        bloques.append(f"  Fecha (RHI): {rhi['fechas_encontradas'][0]}")
+    rehab = pos.get("rehabilitacion", {})
+    if rehab.get("fechas_rehab"):
+        bloques.append(f"  Fecha evento (Rehab): {rehab['fechas_rehab'][0]}")
     if discrepancias:
         bloques.append("\n⚠️ DISCREPANCIAS DETECTADAS:")
         for d in discrepancias:
             bloques.append(f"  - {d.get('campo','?')}: Medi={d.get('medifolios','?')} vs Pos={d.get('positiva','?')}")
     return "\n".join(bloques)
+
+
+def _extraer_datos_notas(notas: list) -> dict:
+    """Extrae campos estructurados de archivos CR_, CC_, VOI_ de Sandra."""
+    datos = {}
+    for nota in notas:
+        contenido = nota.get("contenido", "")
+        tipo_match = re.search(r'TIPO\s*(?:DE\s*)?SINIESTRO\s*[\|:\s]+([^\n\|]{5,40})', contenido, re.IGNORECASE)
+        if tipo_match and not datos.get("tipo_siniestro"):
+            datos["tipo_siniestro"] = tipo_match.group(1).strip()
+        fecha_match = re.search(r'FECHA\s*DEL\s*EVENTO\s*[\|:\s]+(\d{1,2}/\d{1,2}/\d{4})', contenido, re.IGNORECASE)
+        if fecha_match and not datos.get("fecha_evento"):
+            datos["fecha_evento"] = fecha_match.group(1).strip()
+        cargo_match = re.search(r'CARGO\s*[\|:\s]+([A-Za-záéíóúñÁÉÍÓÚÑ\s]{5,60})', contenido, re.IGNORECASE)
+        if cargo_match and not datos.get("cargo"):
+            cargo = cargo_match.group(1).strip()
+            if len(cargo) > 4 and cargo.upper() not in ("CARGO", "FUNCIONES"):
+                datos["cargo"] = cargo
+        seg_match = re.search(r'SEGMENTO\s*LESIONADO\s*[\|:\s]+([A-Za-záéíóúñÁÉÍÓÚÑ,\s]{5,80})', contenido, re.IGNORECASE)
+        if seg_match and not datos.get("segmento"):
+            datos["segmento"] = seg_match.group(1).strip()
+        cie10 = re.findall(r'([A-Z]\d{2,3}(?:\.\d)?)\s+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s,]{5,60})', contenido)
+        if cie10 and not datos.get("diagnosticos"):
+            datos["diagnosticos"] = [{"codigo": m[0], "descripcion": m[1].strip()} for m in cie10[:3]]
+        eps_match = re.search(r'EPS\s*[-\s]*IPS\s*[\|:\*]+\s*([A-Za-záéíóúñÁÉÍÓÚÑ\s]{3,40})', contenido, re.IGNORECASE)
+        if eps_match and not datos.get("eps"):
+            eps = eps_match.group(1).strip()
+            if eps and eps.upper() not in ("EPS", "IPS", "ENTIDAD"):
+                datos["eps"] = eps
+        sin_match = re.search(r'(?:NO\.?\s*SINIESTRO|siniestro)\s*[\|:\s]+(\d{8,12})', contenido, re.IGNORECASE)
+        if sin_match and not datos.get("siniestro"):
+            datos["siniestro"] = sin_match.group(1).strip()
+    return datos
 
 
 def _formatear_notas(notas: list) -> str:
@@ -112,12 +162,32 @@ def _componer_contexto(transcripcion, datos_portales, notas_crudas, formatos_sub
         "🎙️ TRANSCRIPCIÓN DEL AUDIO:",
         transcripcion_texto,
         "",
-        _formatear_portales(datos_portales),
-        "",
-        _formatear_notas(notas_crudas),
-        "",
-        _formatear_formatos_subidos(formatos_subidos),
     ]
+    # Pre-extraer datos estructurados de los archivos de Sandra (F-5)
+    datos_de_notas = _extraer_datos_notas(notas_crudas)
+    if datos_de_notas:
+        bloques_notas = ["📋 DATOS EXTRAÍDOS DE ARCHIVOS DE SANDRA (AUTORITATIVOS):"]
+        if datos_de_notas.get("tipo_siniestro"):
+            bloques_notas.append(f"  Tipo siniestro: {datos_de_notas['tipo_siniestro']}")
+        if datos_de_notas.get("fecha_evento"):
+            bloques_notas.append(f"  Fecha del evento: {datos_de_notas['fecha_evento']}")
+        if datos_de_notas.get("cargo"):
+            bloques_notas.append(f"  Cargo actual: {datos_de_notas['cargo']}")
+        if datos_de_notas.get("segmento"):
+            bloques_notas.append(f"  Segmento lesionado: {datos_de_notas['segmento']}")
+        if datos_de_notas.get("diagnosticos"):
+            for dx in datos_de_notas["diagnosticos"][:2]:
+                bloques_notas.append(f"  Diagnostico: {dx['codigo']} - {dx['descripcion']}")
+        if datos_de_notas.get("eps"):
+            bloques_notas.append(f"  EPS: {datos_de_notas['eps']}")
+        if datos_de_notas.get("siniestro"):
+            bloques_notas.append(f"  Siniestro (notas): {datos_de_notas['siniestro']}")
+        bloques.append("\n".join(bloques_notas) + "\n")
+    bloques.append(_formatear_portales(datos_portales))
+    bloques.append("")
+    bloques.append(_formatear_notas(notas_crudas))
+    bloques.append("")
+    bloques.append(_formatear_formatos_subidos(formatos_subidos))
     return "\n".join(bloques)
 
 
@@ -170,7 +240,20 @@ REGLAS ADICIONALES:
 - Si el audio menciona trabajos anteriores, ponlos en "apreciacion_trabajador" como historial laboral previo, NO en tareas_criticas.
 - Si hay contradiccion entre proceso_productivo y empresa.cargo, prevalece empresa.cargo (oficial en el sistema de riesgos).
 - Si una tarea no corresponde al cargo actual, omitirla o marcarla como historial previo.
-- Dominancia (lateralidad): extraer del audio con cuidado. Si no esta claro, poner "[VERIFICAR: derecha o izquierda]"."""
+- Dominancia (lateralidad): extraer del audio con cuidado. Si no esta claro, poner "[VERIFICAR: derecha o izquierda]".
+
+REGLAS PARA NOTAS DE ARCHIVO (📝 NOTAS CRUDAS):
+- Los archivos CR_, VOI_, CC_ que aparecen en 📝 NOTAS CRUDAS son documentos OFICIALES generados por Sandra.
+- Para los siguientes campos, si aparecen en las notas de archivo, SON AUTORITATIVOS (igual de confiables que el portal):
+  * empresa.cargo → buscar "Nombre del cargo:", "CARGO:", "cargo asegurado"
+  * siniestro.tipo_evento → buscar "TIPO DE SINIESTRO", "Enfermedad Laboral", "Accidente de Trabajo"
+  * siniestro.fecha_evento → buscar "FECHA DEL EVENTO", "Fecha del evento"
+  * siniestro.id_siniestro → buscar "Siniestro:", "NO. SINIESTRO" con digitos
+  * siniestro.diagnostico_cie10 → buscar diagnosticos CIE-10 en notas clinicas
+  * empresa.nombre → buscar el nombre de la empresa en el encabezado del CR
+  * paciente.eps_ips → buscar "EPS - IPS*" en las notas
+- Si el audio dice cargo X y el CR dice cargo Y, PREVALECE el CR (documento oficial).
+- Si el audio menciona trabajos anteriores (historial laboral), NO usarlos para llenar empresa.nombre ni empresa.cargo. Solo para apreciacion_trabajador como historial previo."""
 
 
 def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, formatos_subidos: List, paciente_cc: str) -> Dict:

@@ -35,14 +35,14 @@ STEPS = [
 
 TIMEOUT_POR_PASO = {
     "transcribir": 600,
-    "resolver_paciente": 120,
-    "leer_notas_crudas": 60,
-    "leer_formatos_subidos": 60,
+    "resolver_paciente": 480,
+    "leer_notas_crudas": 120,
+    "leer_formatos_subidos": 120,
     "sintetizar_maestro": 300,
-    "verificar_portales": 180,
-    "generar_formatos": 120,
-    "qa_formatos": 60,
-    "convertir_pdf": 120,
+    "verificar_portales": 300,
+    "generar_formatos": 180,
+    "qa_formatos": 120,
+    "convertir_pdf": 180,
     "notificar_listo": 30,
 }
 
@@ -75,6 +75,7 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
     t_total = time.time()
 
     for step_name, estado_label, paso_num in STEPS:
+        db.actualizar_paso(task_id, paso=paso_num, estado=estado_label)
         _log(f"PASO {paso_num}/10: {step_name}")
         t_step = time.time()
 
@@ -98,7 +99,6 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
                     db.marcar_error(task_id, paso=paso_num, error=f"Timeout en {step_name} (>{timeout}s)")
                     return {"task_id": task_id, "estado": f"error_en_paso_{paso_num}", "error": f"Timeout >{timeout}s"}
             contexto[step_name] = resultado_step
-            db.actualizar_paso(task_id, paso=paso_num, estado=estado_label)
             _log(f"PASO {paso_num} OK en {time.time()-t_step:.1f}s")
 
             if step_name == "generar_formatos" and not resultado_step.get("ok"):

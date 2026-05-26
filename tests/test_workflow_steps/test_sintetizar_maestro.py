@@ -29,7 +29,7 @@ def test_sintesis_llama_subprocess_lote_worker():
     with patch("backend.workflow_steps.sintetizar_maestro.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout='{"ok": true, "respuesta": "Datos sintetizados", "tokens": {"total": 1000}}',
+            stdout='{"ok": true, "respuesta": "```json\\n{\\"paciente\\": {\\"documento\\": \\"123\\"}}\\n```", "tokens": {"total": 1000}}',
             stderr="",
         )
         resultado = sintetizar(
@@ -43,7 +43,7 @@ def test_sintesis_llama_subprocess_lote_worker():
     assert mock_run.called
     assert "lote_worker" in " ".join(mock_run.call_args[0][0])
     assert "sintetizar" in " ".join(mock_run.call_args[0][0])
-    assert resultado["respuesta_completa"] == "Datos sintetizados"
+    assert "paciente" in resultado["respuesta_completa"]
 
 
 def test_chunking_si_contexto_grande():

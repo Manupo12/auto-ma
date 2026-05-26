@@ -153,10 +153,46 @@ def _cargar_datos_paciente(cc: str) -> dict:
 
 
 def _datos_a_paciente_info(datos: dict) -> dict:
-    pac = datos.get("paciente", {})
-    sin = datos.get("siniestro", {})
+    # Detectar formato: si no tiene "paciente" pero tiene "medifolios", es portal-raw
+    pac = datos.get("paciente") or {}
+    sin = datos.get("siniestro") or {}
+    empresa_d = datos.get("empresa") or {}
+
+    # Fallback para formato portal-raw {cc, medifolios, positiva, _meta}
+    if not pac and datos.get("medifolios"):
+        medi = datos.get("medifolios", {})
+        pos = datos.get("positiva", {})
+        # Intentar reconstruir nombre desde campos de portal
+        nombre_partes = [
+            medi.get("nombre1",""), medi.get("nombre2",""),
+            medi.get("apellido1",""), medi.get("apellido2","")
+        ]
+        nombre_portal = " ".join(p for p in nombre_partes if p).strip()
+        # Siniestro desde Positiva (siniestros primero, luego autorizaciones)
+        sin_num = ""
+        siniestros_pos = pos.get("siniestros", [])
+        if siniestros_pos:
+            sin_num = siniestros_pos[0].get("id", "")
+        if not sin_num:
+            for aut in (pos.get("autorizaciones") or []):
+                desc = aut.get("descripcion", "")
+                if desc and len(desc) >= 9 and desc.isdigit():
+                    sin_num = desc
+                    break
+        pac = {
+            "nombre": nombre_portal or f"CC {datos.get('cc','')}",
+            "documento": medi.get("cc_buscado") or datos.get("cc",""),
+            "eps_ips": medi.get("eps",""),
+            "afp": medi.get("afp",""),
+            "telefono": medi.get("telefono",""),
+            "direccion": medi.get("direccion",""),
+            "edad": medi.get("edad",""),
+        }
+        sin = {"id_siniestro": sin_num, "estado_caso": pos.get("rhi", {}).get("estado_caso","")}
+        empresa_d = {"nombre": medi.get("empresa","")}
+
     return {
-        "documento": pac.get("documento", ""),
+        "documento": pac.get("documento", datos.get("cc", "")),
         "nombre": pac.get("nombre", ""),
         "fecha_nacimiento": pac.get("fecha_nacimiento", ""),
         "edad": pac.get("edad", ""),
@@ -165,7 +201,7 @@ def _datos_a_paciente_info(datos: dict) -> dict:
         "email": pac.get("email", ""),
         "eps_ips": pac.get("eps_ips", ""),
         "afp": pac.get("afp", ""),
-        "empresa": datos.get("empresa", {}).get("nombre", ""),
+        "empresa": empresa_d.get("nombre", ""),
         "siniestro": sin.get("id_siniestro", sin.get("numero_siniestro", "")),
         "estado_caso": datos.get("estado_caso", sin.get("estado_caso", "")),
         "ultima_actualizacion": datos.get("ultima_actualizacion", ""),

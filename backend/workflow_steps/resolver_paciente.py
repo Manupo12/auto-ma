@@ -59,9 +59,13 @@ def resolver_paciente(cc: str, forzar_extraer: bool = False) -> Tuple[dict, str]
         with open(path, encoding="utf-8") as f:
             return json.load(f), "cache_viejo"
 
-    # Caso 4: Paciente nuevo, Playwright fallo, sin cache -> error
+    # Caso 4: Paciente nuevo, Playwright fallo, sin cache -> ERROR (detener workflow)
     _log(f"CC ***{cc[-4:]}: SIN DATOS - paciente nuevo sin acceso a portales")
-    return {"cc": cc, "_vacio": True, "error": "Playwright no disponible para paciente nuevo"}, "sin_datos"
+    return {
+        "cc": cc,
+        "_vacio": True,
+        "error": "Playwright no disponible para paciente nuevo. Intente de nuevo.",
+    }, "sin_datos"
 
 
 def ejecutar(paciente_cc: str, forzar_extraer: bool = False) -> dict:

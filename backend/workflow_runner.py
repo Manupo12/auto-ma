@@ -38,7 +38,7 @@ TIMEOUT_POR_PASO = {
     "resolver_paciente": 480,
     "leer_notas_crudas": 120,
     "leer_formatos_subidos": 120,
-    "sintetizar_maestro": 300,
+    "sintetizar_maestro": 900,
     "verificar_portales": 300,
     "generar_formatos": 180,
     "qa_formatos": 120,
@@ -100,6 +100,12 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
                     return {"task_id": task_id, "estado": f"error_en_paso_{paso_num}", "error": f"Timeout >{timeout}s"}
             contexto[step_name] = resultado_step
             _log(f"PASO {paso_num} OK en {time.time()-t_step:.1f}s")
+
+            if step_name == "resolver_paciente":
+                portales = resultado_step.get("datos_portales", {})
+                if portales.get("_vacio") and not portales.get("medifolios", {}).get("nombre1"):
+                    db.marcar_error(task_id, paso=paso_num, error="Paciente nuevo sin datos de portales. Verifique FASE_A_ENABLED o extraiga manualmente.")
+                    return {"task_id": task_id, "estado": "error_en_paso_2", "error": "Sin datos de portales"}
 
             if step_name == "generar_formatos" and not resultado_step.get("ok"):
                 if resultado_step.get("ok_parcial"):
@@ -168,6 +174,39 @@ def ejecutar_workflow(audio_path: str, paciente_cc: str, task_id_existente: str 
         resultado_final["_requiere_confirmacion"] = True
         resultado_final["_requiere_confirmacion_motivo"] = contexto.get("_requiere_confirmacion_motivo", "")
         resultado_final["estado"] = "listo_con_advertencias"
+    # Guardar los datos clínicos enriquecidos finales en el archivo canónico del paciente
+    try:
+        verif = contexto.get("verificar_portales", {})
+        sintesis = contexto.get("sintetizar_maestro", {})
+        datos_clinicos = verif.get("datos_enriquecidos") or sintesis.get("datos_clinicos") or {}
+        if datos_clinicos and "paciente" in datos_clinicos:
+            storage_dir = Path(os.getenv("STORAGE_DIR", "./storage"))
+            data_dir = storage_dir / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            save_path = data_dir / f"{paciente_cc}-completo.json"
+            
+            # Preservar datos de portales en el JSON si ya existían
+            portales_datos = contexto.get("resolver_paciente", {}).get("datos_portales") or {}
+            datos_a_guardar = dict(datos_clinicos)
+            
+            # Asegurar la estructura esperada por _datos_a_paciente_info
+            if portales_datos:
+                datos_a_guardar["medifolios"] = portales_datos.get("medifolios", {})
+                datos_a_guardar["positiva"] = portales_datos.get("positiva", {})
+            
+            datos_a_guardar["_meta"] = {
+                "fuente": "workflow_enriquecido",
+                "guardado_en": datetime.now().isoformat(),
+                "paciente_cc": paciente_cc,
+            }
+            
+            import json as _json
+            with open(save_path, "w", encoding="utf-8") as f:
+                _json.dump(datos_a_guardar, f, ensure_ascii=False, indent=2)
+            _log(f"datos_clinicos enriquecidos guardados → {save_path.name}")
+    except Exception as e:
+        _log(f"WARN: no se pudo guardar datos_clinicos enriquecidos: {e}")
+
     db.guardar_resultado(task_id, resultado_final, estado="listo")
     _log(f"═══ TASK {task_id} LISTO en {time.time()-t_total:.1f}s ═══")
     return resultado_final

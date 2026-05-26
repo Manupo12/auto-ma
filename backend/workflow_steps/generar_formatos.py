@@ -41,14 +41,21 @@ def _cargar_json_paciente(cc: str) -> dict:
 def _merge_paciente_con_llm(datos_llm: dict, cc: str) -> dict:
     """
     Mezcla: portal SOBREESCRIBE datos de identidad del LLM.
-    Solo los datos clinicos de evaluacion (que no estan en portales) se dejan del LLM.
+    Solo los datos clinicos de evaluacion se dejan del LLM.
     """
     json_paciente = _cargar_json_paciente(cc)
     if not json_paciente or json_paciente.get("_vacio"):
+        _aplicar_mapeos_docgen(datos_llm)
         return datos_llm
 
-    medi = json_paciente.get("medifolios", {})
-    pos = json_paciente.get("positiva", {})
+    # El JSON del portal tiene medifolios/positiva en raiz.
+    # El JSON sintetizado por el LLM los guarda en _portales.
+    # Probar ambas ubicaciones.
+    medi = json_paciente.get("medifolios", {}) or {}
+    pos = json_paciente.get("positiva", {}) or {}
+    if not medi and not pos:
+        medi = (json_paciente.get("_portales", {}) or {}).get("medifolios", {}) or {}
+        pos = (json_paciente.get("_portales", {}) or {}).get("positiva", {}) or {}
 
     pac = datos_llm.setdefault("paciente", {})
 
@@ -82,7 +89,7 @@ def _merge_paciente_con_llm(datos_llm: dict, cc: str) -> dict:
         ("afp", "afp"),         ("slct_afp_paciente", "afp"),
     ]:
         if medi.get(campo_portal):
-            pac[campo_pac] = medi[campo_portal]  # SOBREESCRIBE si portal tiene el dato
+            pac[campo_pac] = medi[campo_portal]
 
     # EMPRESA: portal cuando disponible
     emp = datos_llm.setdefault("empresa", {})
@@ -98,7 +105,14 @@ def _merge_paciente_con_llm(datos_llm: dict, cc: str) -> dict:
     if nit_portal:
         emp["nit"] = nit_portal
 
-    # SINIESTRO: solo portal-oficial, no [VERIFICAR]
+    # Contacto empresa desde Positiva
+    da = pos.get("datos_asegurado", {}) or {}
+    if da.get("cargo_asegurado"):
+        emp["cargo"] = da["cargo_asegurado"]
+    if da.get("nombre") and not emp.get("contacto"):
+        emp["contacto"] = da["nombre"]
+
+    # SINIESTRO: portal-oficial
     sin = datos_llm.setdefault("siniestro", {})
     siniestro_portal = ""
     if medi.get("siniestro_medi") and medi["siniestro_medi"] != "[VERIFICAR]":
@@ -107,32 +121,47 @@ def _merge_paciente_con_llm(datos_llm: dict, cc: str) -> dict:
         siniestro_portal = pos["siniestro_id"]
     elif (pos.get("siniestros") or []):
         siniestro_portal = pos["siniestros"][0].get("id", "")
-    # Fallback: siniestro en tabla de autorizaciones
+    # Fallback: autorizaciones
     if not siniestro_portal and pos.get("autorizaciones"):
         for aut in pos["autorizaciones"][:3]:
             posible_sin = str(aut.get("descripcion", "")).strip()
             if re.match(r'^\d{8,12}$', posible_sin):
                 siniestro_portal = posible_sin
                 posible_fecha = str(aut.get("estado", "")).strip()
-                if re.match(r'\d{2}/\d{2}/\d{4}', posible_fecha):
-                    if not sin.get("fecha_evento"):
-                        sin["fecha_evento"] = posible_fecha
+                if re.match(r'\d{2}/\d{2}/\d{4}', posible_fecha) and not sin.get("fecha_evento"):
+                    sin["fecha_evento"] = posible_fecha
                 break
     if siniestro_portal:
         sin["id_siniestro"] = siniestro_portal
 
+    # LABORAL: cargo desde portal
+    lab = datos_llm.setdefault("laboral", {})
+    if da.get("cargo_asegurado") and not lab.get("cargo"):
+        lab["cargo"] = da["cargo_asegurado"]
+    if da.get("empresa") and not emp.get("nombre"):
+        emp["nombre"] = da["empresa"]
+
+    # Mapeos LLM -> doc_generator
+    _aplicar_mapeos_docgen(datos_llm)
     return datos_llm
 
 
-def _log(msg: str):
-    print(f"[GENERAR_FORMATOS {datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
+def _aplicar_mapeos_docgen(datos: dict):
+    """doc_generator espera ciertos nombres que difieren del LLM."""
+    pac = datos.setdefault("paciente", {})
+    if pac.get("formacion_oficios") and not pac.get("formacion_otros"):
+        pac["formacion_otros"] = pac["formacion_oficios"]
+
+    sin = datos.setdefault("siniestro", {})
+    if sin.get("diagnostico_cie10") and not sin.get("diagnosticos"):
+        sin["diagnosticos"] = sin["diagnostico_cie10"]
 
 
 FORMATOS_POR_ESTADO = {
-    "NUEVO": ["analisis", "medidas", "recomendaciones", "citacion", "valoracion", "cierre", "prueba"],
-    "SEGUIMIENTO": ["analisis", "medidas", "recomendaciones", "valoracion", "citacion", "prueba", "cierre"],
-    "CIERRE": ["analisis", "medidas", "recomendaciones", "cierre", "valoracion", "citacion", "prueba"],
-    "PRUEBA_TRABAJO": ["analisis", "prueba", "valoracion", "medidas", "recomendaciones", "cierre", "citacion"],
+    "NUEVO": ["analisis", "medidas", "recomendaciones", "citacion", "valoracion"],
+    "SEGUIMIENTO": ["analisis", "medidas", "recomendaciones", "valoracion"],
+    "CIERRE": ["analisis", "medidas", "recomendaciones", "cierre", "valoracion"],
+    "PRUEBA_TRABAJO": ["analisis", "prueba", "valoracion"],
 }
 
 FORMATO_FUNC = {

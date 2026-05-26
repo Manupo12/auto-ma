@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 
 # Instalar dependencias de sistema (playwright)
 echo "=== Verificando Playwright ==="
-python3 -m playwright install chromium --with-deps 2>/dev/null || true
+python3 -m playwright install chromium 2>/dev/null || true
 
 # Matar solo procesos propios en los puertos
 echo "=== RILO SAS ==="

@@ -16,7 +16,7 @@ def test_lee_notas_de_workspace_por_cc(tmp_path, monkeypatch):
     monkeypatch.setenv("WORKSPACE_DIR", str(workspace))
     from backend.workflow_steps.leer_notas_crudas import leer_notas_crudas
 
-    notas = leer_notas_crudas("1193143688")
+    notas, completo = leer_notas_crudas("1193143688")
     assert len(notas) == 2
     assert "duele el hombro" in " ".join(n["contenido"] for n in notas)
     assert "rigidez matutina" in " ".join(n["contenido"] for n in notas)
@@ -27,5 +27,5 @@ def test_devuelve_vacio_si_no_hay_notas(tmp_path, monkeypatch):
     workspace.mkdir()
     monkeypatch.setenv("WORKSPACE_DIR", str(workspace))
     from backend.workflow_steps.leer_notas_crudas import leer_notas_crudas
-    notas = leer_notas_crudas("9999")
+    notas, completo = leer_notas_crudas("9999")
     assert notas == []

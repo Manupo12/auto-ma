@@ -176,12 +176,20 @@ def ejecutar_sintesis(mensaje: str, contexto: str, modelo: str) -> dict:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"{mensaje}\n\n[CONTEXTO]:\n{contexto}"},
     ]
-    resultado = _llamar_llm(messages, modelo, max_tokens=16000)
+    resultado = _llamar_llm(messages, modelo, max_tokens=32000)
     if not resultado["content"] and resultado["reasoning"]:
         return {
             "ok": False,
             "tipo": "sintetizar",
             "error": "LLM devolvio solo razonamiento sin respuesta final (posible timeout interno)",
+            "tokens": resultado["tokens"],
+            "tiempo_s": resultado["tiempo_s"],
+        }
+    if not resultado["content"]:
+        return {
+            "ok": False,
+            "tipo": "sintetizar",
+            "error": f"LLM devolvio respuesta vacia (finish={resultado.get('finish','?')})",
             "tokens": resultado["tokens"],
             "tiempo_s": resultado["tiempo_s"],
         }

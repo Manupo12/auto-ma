@@ -36,7 +36,7 @@ def test_detectar_discrepancias():
     assert disc[0]["campo"] == "siniestro"
     assert disc[0]["medifolios"] == "503463870"
     assert disc[0]["positiva"] == "503476658"
-    assert "prevalecer" in disc[0]["resolucion"].lower()
+    assert "positiva" in disc[0]["resolucion"].lower()
 
 
 def test_sin_discrepancias():

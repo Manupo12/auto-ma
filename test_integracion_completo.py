@@ -22,7 +22,7 @@ import time
 import glob
 from pathlib import Path
 
-sys.path.insert(0, "/root/fisioterapia")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 PASS = "✅"
 FAIL = "❌"
@@ -365,6 +365,14 @@ try:
     assert r3.status_code == 200
     ok("/api/chat (siniestro)", r3.json()["contenido"][:50])
 
+    # Login to authenticate test client session
+    pin_val = os.getenv("AUTH_PIN", "1234")
+    r_login = client.post("/api/login", json={"pin": pin_val})
+    assert r_login.status_code == 200, f"login status={r_login.status_code}"
+    token = r_login.cookies.get("rilo_session")
+    client.cookies.set("rilo_session", token)
+    ok("/api/login", "autenticación exitosa")
+
     # /api/pacientes
     r = client.get("/api/pacientes")
     assert r.status_code == 200
@@ -413,9 +421,10 @@ print("=" * 60)
 try:
     import subprocess
 
-    SCRIPTS = "/root/.hermes/skills/fisioterapia/verificar-documento/scripts"
-    TEMPLATES = "/root/fisioterapia/templates/formatos"
-    DOCS = "/root/fisioterapia/storage/docs"
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    SCRIPTS = os.path.join(BASE_DIR, "skills/verificar-documento/scripts")
+    TEMPLATES = os.path.join(BASE_DIR, "templates/formatos")
+    DOCS = os.path.join(BASE_DIR, "storage/docs")
 
     verif_pairs = [
         (f"{DOCS}/analisis-*.docx", f"{TEMPLATES}/ejemplo analisis de exigencia.docx"),
@@ -439,7 +448,7 @@ try:
         # Run analizar_ejemplo on the generated doc
         result = subprocess.run(
             ["python3", f"{SCRIPTS}/analizar_ejemplo.py", gen],
-            capture_output=True, text=True, cwd="/root/fisioterapia"
+            capture_output=True, text=True, cwd=BASE_DIR
         )
         if result.returncode == 0:
             ok(f"analizar_ejemplo: {label[:40]}", "OK")
@@ -449,7 +458,7 @@ try:
         # Run verificar.py (structural comparison with template)
         result2 = subprocess.run(
             ["python3", f"{SCRIPTS}/verificar.py", gen, template],
-            capture_output=True, text=True, cwd="/root/fisioterapia"
+            capture_output=True, text=True, cwd=BASE_DIR
         )
         lines = (result2.stdout + result2.stderr).strip().split("\n")
         issues = [l for l in lines if "ERROR" in l.upper() or "FALLA" in l.upper() or "MISMATCH" in l.upper()]

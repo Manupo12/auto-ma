@@ -90,8 +90,8 @@ def convertir_a_pdfa(docx_path: str, output_dir: Optional[str] = None) -> str:
     
     # Guardar metadata de conversión
     meta_path = pdf_path.replace(".pdf", ".pdf.meta.json")
-    tiene_verapdf = shutil_which("verapdf") is not None
-    tiene_pdftk = shutil_which("pdftk") is not None
+    tiene_verapdf = shutil.which("verapdf") is not None
+    tiene_pdftk = shutil.which("pdftk") is not None
 
     import json
     with open(meta_path, "w") as f:

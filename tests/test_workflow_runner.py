@@ -64,7 +64,7 @@ def test_runner_ejecuta_los_9_pasos_en_orden(tmp_path, monkeypatch):
          patch("backend.workflow_steps.convertir_pdf.ejecutar") as m8, \
          patch("backend.workflow_steps.notificar_listo.ejecutar") as m9:
 
-        m1.return_value = {"texto": "...", "warnings": []}
+        m1.return_value = {"ok": True, "texto": "...", "warnings": []}
         m2.return_value = {"datos_portales": {"medifolios": {"nombre1": "JUAN"}}, "fuente": "cache"}
         m3.return_value = {"notas_crudas": [], "total": 0}
         m4.return_value = {"formatos_subidos": [], "total": 0}

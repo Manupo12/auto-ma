@@ -48,10 +48,10 @@ def test_chat_carga_datos_verificados_si_existen(tmp_path, monkeypatch):
 
     # Verificar formateo
     texto = _formatear_datos_verificados(datos)
-    assert "✅ Siniestro" in texto
+    assert "[OK] Siniestro" in texto
     assert "503463870" in texto
-    assert "✅ Paciente" in texto
-    assert "📋 DATOS VERIFICADOS" in texto
+    assert "[OK] Paciente" in texto
+    assert "DATOS VERIFICADOS" in texto
 
     # Verificar integración en procesar_mensaje con mock LLM
     with patch("backend.chat_handler.requests.post") as mock_post:

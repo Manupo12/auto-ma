@@ -24,7 +24,8 @@ if not AUTH_PIN:
     raise RuntimeError("AUTH_PIN no configurado en .env - el servidor no puede iniciar")
 
 def validar_pin(pin: str) -> bool:
-    return compare_digest(pin, AUTH_PIN)
+    expected_pin = os.getenv("AUTH_PIN") or AUTH_PIN
+    return compare_digest(pin, expected_pin)
 
 
 def generar_token(usuario: str = "Sandra") -> str:

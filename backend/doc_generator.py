@@ -165,7 +165,17 @@ def _buscar_y_reemplazar(doc, etiqueta, valor):
                     value_start = i
                     break
             if value_start is None:
-                continue
+                tc = celdas[label_start]._tc
+                if tc not in celdas_escritas:
+                    celdas_escritas.add(tc)
+                    texto_original = celdas[label_start].text
+                    if ":" in texto_original:
+                        partes = texto_original.split(":", 1)
+                        nuevo_texto = f"{partes[0]}: {valor_str}"
+                    else:
+                        nuevo_texto = f"{etiqueta}: {valor_str}"
+                    _poner_texto(celdas[label_start], nuevo_texto)
+                return True
 
             # 3. Poner el valor en la primera celda de valor (solo si no se ha escrito ya)
             celda_valor = celdas[value_start]
@@ -506,6 +516,32 @@ def _reemplazar_en_tablas(doc, viejo, nuevo):
                 if viejo in celda.text:
                     new_text = celda.text.replace(viejo, nuevo)
                     _poner_texto(celda, new_text)
+
+
+# Nombres femeninos comunes en Colombia
+_NOMBRES_FEMENINOS = {
+    "maria", "rosa", "maribel", "laura", "claudia", "patricia", "sandra",
+    "diana", "carolina", "andrea", "alejandra", "luz", "gloria", "martha",
+    "marta", "pilar", "natalia", "paola", "viviana", "marcela", "adriana",
+    "liliana", "yolanda", "beatriz", "cecilia", "helena", "irene", "julia",
+    "blanca", "esperanza", "graciela", "lucía", "lucia", "silvia", "teresa",
+    "susana", "mónica", "monica", "margarita", "dolores", "consuelo",
+}
+
+def _detectar_genero(nombre: str) -> str:
+    """
+    Retorna 'F' si el primer nombre es femenino, 'M' si masculino, '' si no se sabe.
+    Detecta por lista de nombres comunes colombianos.
+    """
+    if not nombre:
+        return ""
+    primer_nombre = nombre.strip().split()[0].lower()
+    if primer_nombre in _NOMBRES_FEMENINOS:
+        return "F"
+    # Heurística: nombres que terminan en 'a' son frecuentemente femeninos
+    if primer_nombre.endswith("a") and len(primer_nombre) > 3:
+        return "F"
+    return "M"
 
 
 def _reemplazar_celda_entera(doc, texto_busqueda, texto_nuevo, bold=None, font_size=None):
@@ -1060,12 +1096,12 @@ def generar_carta_medidas(datos, output_name=None):
     doc, dst = _preparar_documento("ejemplo carta de medidas.docx", output_name, datos)
 
     # --- Encabezado ---
-    _reemplazar_en_parrafos(doc, "FISCALÍA GENERAL DE LA NACIÓN HUILA", e.get("nombre", "[EMPRESA]"))
-    _reemplazar_en_parrafos(doc, "Dra. Diana Cristina Sánchez Pama", e.get("contacto", "[CONTACTO]"))
-    _reemplazar_en_parrafos(doc, "Profesional de seguridad y salud en el trabajo", e.get("cargo_contacto", "[CARGO]"))
-    _reemplazar_en_parrafos(doc, "Carrera 21ª # 26-65 Sur", e.get("direccion", "[DIRECCIÓN]"))
-    _reemplazar_en_parrafos(doc, "3223089360", e.get("telefono", "[TELÉFONO]"))
-    _reemplazar_en_parrafos(doc, "dianac.sanchez@fiscalia.gov.co", e.get("correo", "[CORREO]"))
+    _reemplazar_en_parrafos(doc, "FISCALÍA GENERAL DE LA NACIÓN HUILA", e.get("nombre") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "Dra. Diana Cristina Sánchez Pama", e.get("contacto") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "Profesional de seguridad y salud en el trabajo", e.get("cargo_contacto") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "Carrera 21ª # 26-65 Sur", e.get("direccion") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "3223089360", e.get("telefono") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "dianac.sanchez@fiscalia.gov.co", e.get("correo") or "[VERIFICAR]")
 
     # --- Asunto ---
     _reemplazar_en_parrafos(doc, "OLGA LUCIA PAREDES ORTIZ", p.get("nombre", "[NOMBRE]"))
@@ -1125,11 +1161,17 @@ def generar_carta_recomendaciones(datos, output_name=None):
         _reemplazar_celda_entera(doc, "Una vez realizada la Valoración de desempeño", concepto)
 
     # --- Reemplazar en párrafos del encabezado ---
-    _reemplazar_en_parrafos(doc, "BOLIVARIANA DE MINERALES Y CIA LTDA", e.get("nombre", "[EMPRESA]"))
-    _reemplazar_en_parrafos(doc, "Ingrid Johan Vargas Reyes", e.get("contacto", "[CONTACTO]"))
-    _reemplazar_en_parrafos(doc, "jefe Talento Humano", e.get("cargo_contacto", "[CARGO]"))
-    _reemplazar_en_parrafos(doc, "KM 2 VIA NEIVA - PALERMO", e.get("direccion", "[DIRECCIÓN]"))
-    _reemplazar_en_parrafos(doc, "3143009418", e.get("telefono", "[TELÉFONO]"))
+    _reemplazar_en_parrafos(doc, "BOLIVARIANA DE MINERALES Y CIA LTDA", e.get("nombre") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "Ingrid Johan Vargas Reyes", e.get("contacto") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "jefe Talento Humano", e.get("cargo_contacto") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "KM 2 VIA NEIVA - PALERMO", e.get("direccion") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "3143009418", e.get("telefono") or "[VERIFICAR]")
+
+    # También reemplazar en tablas (por si BOLIVARIANA aparece en celdas, no solo párrafos)
+    nombre_empresa = e.get("nombre") or "[VERIFICAR]"
+    _reemplazar_en_tablas(doc, "BOLIVARIANA DE MINERALES Y CIA LTDA", nombre_empresa)
+    _reemplazar_en_tablas(doc, "Obrero de tratamiento roca", l.get("cargo") or e.get("cargo") or "[VERIFICAR]")
+    _reemplazar_en_tablas(doc, "1193143688", p.get("documento") or "[VERIFICAR]")
 
     # --- Fecha de la carta ---
     if c.get("fecha"):
@@ -1213,12 +1255,15 @@ def generar_cierre_caso(datos, output_name=None):
         _marcar_opcion(doc, "Nivel educativo", nivel)
 
     # Datos laborales (están en filas siguientes, buscar por etiquetas cercanas)
-    _reemplazar_en_tablas(doc, "JUAN CARLOS DURAN NARVAEZ", p.get("nombre", "[NOMBRE]"))
+    _reemplazar_en_tablas(doc, "JUAN CARLOS DURAN NARVAEZ", p.get("nombre") or "[VERIFICAR]")
 
     # Empresa
     _buscar_y_reemplazar(doc, "Nombre de la empresa", e.get("nombre"))
     _buscar_y_reemplazar(doc, "NIT de la empresa", e.get("nit"))
-    _buscar_y_reemplazar(doc, "Cargo que desempeña", l.get("cargo"))
+    _buscar_y_reemplazar(doc, "Cargo que desempeña", l.get("cargo") or e.get("cargo"))
+    # Limpiar datos hardcodeados de Juan Carlos que puedan quedar en el template
+    _reemplazar_en_tablas(doc, "BOLIVARIANA DE MINERALES Y CIA LTDA", e.get("nombre") or "[VERIFICAR]")
+    _reemplazar_en_tablas(doc, "Obrero de tratamiento roca", l.get("cargo") or e.get("cargo") or "[VERIFICAR]")
 
     # Sección 2 — Decisión de reintegro (marcar según corresponda)
     forma = r.get("forma_integracion", "")
@@ -1290,10 +1335,10 @@ def generar_citacion_empresas(datos, output_name=None):
     # --- Encabezado: fecha, destinatario ---
     if c.get("fecha"):
         _reemplazar_en_parrafos(doc, "Neiva, 23 febrero 2026", f"Neiva, {c['fecha']}")
-    _reemplazar_en_parrafos(doc, "Seccional Rama Judicial Neiva", e.get("nombre", "[EMPRESA]"))
-    _reemplazar_en_parrafos(doc, "HEBERTH ARMANDO RUIZ PAVA", e.get("contacto", "[CONTACTO]"))
-    _reemplazar_en_parrafos(doc, "Coordinador de SST", e.get("cargo_contacto", "[CARGO]"))
-    _reemplazar_en_parrafos(doc, "Neiva-Huila", e.get("direccion", "[DIRECCIÓN]"))
+    _reemplazar_en_parrafos(doc, "Seccional Rama Judicial Neiva", e.get("nombre") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "HEBERTH ARMANDO RUIZ PAVA", e.get("contacto") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "Coordinador de SST", e.get("cargo_contacto") or "[VERIFICAR]")
+    _reemplazar_en_parrafos(doc, "Neiva-Huila", e.get("direccion") or "[VERIFICAR]")
 
     # --- Asunto (párrafo largo con nombre afiliado, CC, empresa) ---
     asunto_template = (
@@ -1685,6 +1730,8 @@ def generar_valoracion_desempeno(datos, output_name=None):
       Tabla 4 (8 filas x 3 cols): Concepto cont. + Sección 10 (Orientación) + Sección 11 (Registro)
     """
     p, e, l, s, c = _extraer_secciones(datos)
+    # Detectar género del paciente para adaptar el lenguaje
+    genero = _detectar_genero(p.get("nombre", ""))
     output_name = output_name or f"valoracion-{p.get('documento','sinid')}-{c.get('fecha','sinfecha')}"
     doc, dst = _preparar_documento("ejemplo valoracion de desempeño ocupacional.docx", output_name, datos)
 
@@ -1695,6 +1742,18 @@ def generar_valoracion_desempeno(datos, output_name=None):
     # Fecha de valoración (celdas individuales día/mes/año en F00-F01)
     if c.get("fecha"):
         _poner_fecha_celdas(doc, "FECHA DE VALORACIÓN", c["fecha"])
+    else:
+        # Limpiar la fecha del template (viene con 06/04/2026 de Juan Carlos)
+        for tabla_fv in doc.tables:
+            for ri_fv, fila_fv in enumerate(tabla_fv.rows):
+                if any("fecha de valoraci" in cel.text.lower() for cel in fila_fv.cells):
+                    for ri2 in range(ri_fv, min(ri_fv + 3, len(tabla_fv.rows))):
+                        fila2 = tabla_fv.rows[ri2]
+                        for cel2 in fila2.cells:
+                            import re as _re
+                            if _re.match(r'^\d{1,4}$', cel2.text.strip()):
+                                _poner_texto(cel2, "")
+                    break
 
     # Campos label→value (buscar por substrings exactos del template)
     _buscar_y_reemplazar(doc, "Nombre del Trabajador", p.get("nombre"))
@@ -1741,7 +1800,16 @@ def generar_valoracion_desempeno(datos, output_name=None):
     if zona:
         _marcar_opcion(doc, "Urbano", zona)
 
-    _reemplazar_celda_entera(doc, "HERIDA DEL CUARTO DEDO", s.get("diagnosticos"), bold=False, font_size=7.5)
+    diag_val = s.get("diagnostico_cie10") or s.get("diagnosticos") or ""
+    if diag_val:
+        # Intentar reemplazar la celda con el diagnóstico del template de Juan Carlos
+        reemplazado = _reemplazar_celda_entera(doc, "HERIDA DEL CUARTO DEDO", diag_val, bold=False, font_size=7.5)
+        if not reemplazado:
+            # Fallback: buscar la celda de Diagnóstico por su label
+            _reemplazar_celda_entera(doc, "Diagnóstico(s) clínico(s)", diag_val, bold=False, font_size=7.5)
+    else:
+        # Limpiar datos de Juan Carlos aunque no tengamos diagnóstico propio
+        _reemplazar_celda_entera(doc, "HERIDA DEL CUARTO DEDO", "", bold=False, font_size=7.5)
     _buscar_y_reemplazar(doc, "Fecha(s) del evento(s) ATEL", s.get("fecha_evento"))
 
     # Eventos No laborales (Si/No checkbox + campos fecha/diagnóstico)
@@ -1778,13 +1846,28 @@ def generar_valoracion_desempeno(datos, output_name=None):
     mod = l.get("modalidad", "")
     if mod:
         _marcar_opcion(doc, "Modalidad", mod)
-    _buscar_y_reemplazar(doc, "Tiempo de la modalidad", l.get("tiempo_modalidad"))
+    tiempo_modal = l.get("tiempo_modalidad") or l.get("antiguedad_empresa") or ""
+    _buscar_y_reemplazar(doc, "Tiempo de la modalidad", tiempo_modal)
 
     _buscar_y_reemplazar(doc, "NIT de la Empresa", e.get("nit"))
 
     # Fecha ingreso empresa en celdas individuales (F30)
     if l.get("fecha_ingreso_empresa"):
         _poner_fecha_celdas(doc, "Fecha ingreso a la empresa", l["fecha_ingreso_empresa"])
+    else:
+        # Limpiar la fecha del template (viene con 16/12/2024 de Juan Carlos)
+        # Buscar la fila y limpiar celdas numéricas de fecha
+        for tabla_fi in doc.tables:
+            for ri_fi, fila_fi in enumerate(tabla_fi.rows):
+                if any("fecha ingreso a la empresa" in cel.text.lower() for cel in fila_fi.cells):
+                    # Limpiar la siguiente fila que tenga dígitos de fecha
+                    for ri2 in range(ri_fi, min(ri_fi + 3, len(tabla_fi.rows))):
+                        fila2 = tabla_fi.rows[ri2]
+                        for cel2 in fila2.cells:
+                            import re as _re
+                            if _re.match(r'^\d{1,4}$', cel2.text.strip()):
+                                _poner_texto(cel2, "")
+                    break
     # Antigüedad en la empresa: acceso directo (T0 F32 C19)
     ant_emp = l.get("antiguedad_empresa", "")
     if ant_emp:
@@ -1792,6 +1875,14 @@ def generar_valoracion_desempeno(datos, output_name=None):
             _poner_texto(doc.tables[0].rows[32].cells[19], ant_emp)
         except (IndexError, AttributeError) as e:
             _log(f"Celda no encontrada ({e}) - campo 'antiguedad_empresa' omitido en valoracion_desempeno")
+    else:
+        # Limpiar la antigüedad del template (viene con "1 año 4 meses aprox." de Juan Carlos)
+        try:
+            cel_ant = doc.tables[0].rows[32].cells[19]
+            if cel_ant.text.strip() not in ("", "0"):
+                _poner_texto(cel_ant, "")
+        except (IndexError, AttributeError):
+            pass
 
     contacto_str = e.get("contacto") or ""
     cargo_str = e.get("cargo_contacto") or ""
@@ -1812,19 +1903,42 @@ def generar_valoracion_desempeno(datos, output_name=None):
     # Empresa(cols 0-1) | Cargo(cols 2-3) | Tiempo(cols 4-7) | Motivo(cols 8-13)
     # Escribir cada entrada de historia en la fila correspondiente
     fila_base = 3  # F03 es la primera fila de datos en Tabla 1
-    for idx_hist, entrada in enumerate(historia):
-        if idx_hist >= 4:  # máximo 4 entradas
-            break
+    # Limpiar SOLO las 2 filas de historia del template (F03-F04 tienen datos de Juan Carlos)
+    # range(2): solo F03 and F04. range(4) rompería "Otros Oficios" (F05) y "Oficios de interés" (F06)
+    for idx_clear in range(2):
+        if fila_base + idx_clear < len(tabla1.rows):
+            fila_clear = tabla1.rows[fila_base + idx_clear]
+            celdas_clear = fila_clear.cells
+            _poner_texto(celdas_clear[0], "")
+            _poner_texto(celdas_clear[2], "")
+            _poner_texto(celdas_clear[4], "")
+            _poner_texto(celdas_clear[8], "")
+    for idx_hist, entrada in enumerate(historia[:2]):
         fila = tabla1.rows[fila_base + idx_hist]
         celdas = fila.cells
-        # Col 0-1: Empresa
         _poner_texto(celdas[0], entrada.get("empresa", ""))
-        # Col 2-3: Cargo
         _poner_texto(celdas[2], entrada.get("cargo", ""))
-        # Col 4-7: Tiempo/duración
         _poner_texto(celdas[4], entrada.get("duracion", ""))
-        # Col 8-13: Motivo de retiro
         _poner_texto(celdas[8], entrada.get("motivo_retiro", ""))
+
+    # Para las entradas 3+: insertar nuevas filas ANTES de "Otros Oficios" en lugar de texto plano
+    historia_extra = historia[2:]
+    if historia_extra:
+        fila_modelo = tabla1.rows[fila_base + 1]  # copia F04 (segunda fila de datos del template)
+        offset = 0
+        for entrada in historia_extra:
+            new_tr = deepcopy(fila_modelo._tr)
+            fila_otros_idx = fila_base + 2 + offset  # "Otros Oficios" se desplaza 1 por cada inserción
+            if fila_otros_idx < len(tabla1.rows):
+                fila_otros = tabla1.rows[fila_otros_idx]
+                fila_otros._tr.addprevious(new_tr)
+                nueva_fila = tabla1.rows[fila_base + 2 + offset]
+                celdas_nueva = nueva_fila.cells
+                _poner_texto(celdas_nueva[0], entrada.get("empresa", ""))
+                _poner_texto(celdas_nueva[2], entrada.get("cargo", ""))
+                _poner_texto(celdas_nueva[4], entrada.get("duracion", ""))
+                _poner_texto(celdas_nueva[8], entrada.get("motivo_retiro", ""))
+                offset += 1
 
     # Otros oficios y oficios de interés (F05, F06)
     otros = datos.get("otros_oficios", "")
@@ -1835,13 +1949,30 @@ def generar_valoracion_desempeno(datos, output_name=None):
         _buscar_y_reemplazar(doc, "Oficios de interés", interes)
 
     # ─── SECCIÓN 4 — Descripción actividad laboral actual (Tabla 1, F08-F15) ───
-    _buscar_y_reemplazar(doc, "Nombre del cargo", l.get("cargo"))
-    _buscar_y_reemplazar(doc, "Tareas (nombre y descripción)", l.get("tareas"))
-    _buscar_y_reemplazar(doc, "Herramientas de trabajo", l.get("herramientas"))
-    _buscar_y_reemplazar(doc, "Horario de trabajo", l.get("horario"))
-    _buscar_y_reemplazar(doc, "Elementos de Protección", l.get("epp"))
-    _buscar_y_reemplazar(doc, "Antigüedad en el cargo", l.get("antiguedad_cargo"))
-    _buscar_y_reemplazar(doc, "Requerimientos motrices de la actividad", l.get("requerimientos_motrices"))
+    # Sección 4: filas con 1 celda merged (formato "Label: valor") — _buscar_y_reemplazar falla
+    # Usar _reemplazar_celda_entera que reemplaza TODO el contenido de la celda encontrada
+    # Fallback a empresa.cargo cuando laboral.cargo está vacío (el LLM puede poner el cargo en empresa)
+    cargo_val = l.get("cargo") or e.get("cargo") or ""
+    tareas_val = l.get("tareas") or ""
+    herr_val = l.get("herramientas") or ""
+    horario_val = l.get("horario") or ""
+    epp_val = l.get("epp") or ""
+    ant_cargo_val = l.get("antiguedad_cargo") or ""
+    req_val = l.get("requerimientos_motrices") or ""
+    _reemplazar_celda_entera(doc, "Nombre del cargo:",
+        f"Nombre del cargo: {cargo_val}", font_size=7.5)
+    _reemplazar_celda_entera(doc, "Tareas (nombre y descripción):",
+        f"Tareas (nombre y descripción): {tareas_val}", font_size=7.5)
+    _reemplazar_celda_entera(doc, "Herramientas de trabajo:",
+        f"Herramientas de trabajo: {herr_val}", font_size=7.5)
+    _reemplazar_celda_entera(doc, "Horario de trabajo:",
+        f"Horario de trabajo: {horario_val}", font_size=7.5)
+    _reemplazar_celda_entera(doc, "Elementos de Protección:",
+        f"Elementos de Protección: {epp_val}", font_size=7.5)
+    _reemplazar_celda_entera(doc, "Antigüedad en el cargo:",
+        f"Antigüedad en el cargo: {ant_cargo_val}", font_size=7.5)
+    _reemplazar_celda_entera(doc, "Requerimientos motrices de la actividad:",
+        f"Requerimientos motrices de la actividad: {req_val}", font_size=7.5)
 
     # Ocurrencia del ATEL (Tabla 1 F15): checkbox compuesto
     # Estructura: "Ocurrencia del ATEL" | [X SI/NO] | PUESTO DE TRABAJO | SI | [X] | NO | ...
@@ -1873,30 +2004,64 @@ def generar_valoracion_desempeno(datos, output_name=None):
                 break
 
     # ─── SECCIÓN 5 — Rol laboral (Tabla 1, F18-F21) ───
-    rol = datos.get("rol_laboral", {})
-    _buscar_y_reemplazar(doc, "Rol Laboral", rol.get("tareas_operaciones"))
-    _buscar_y_reemplazar(doc, "Sensorio - motor", rol.get("sensorio_motor"))
-    _buscar_y_reemplazar(doc, "Cognitivo", rol.get("cognitivo"))
-    _buscar_y_reemplazar(doc, "Psicológicos", rol.get("psicologicos"))
-    _buscar_y_reemplazar(doc, "Social", rol.get("social"))
-    _buscar_y_reemplazar(doc, "Tiempo de Ejecución", rol.get("tiempo_ejecucion"))
-    _buscar_y_reemplazar(doc, "Forma de integración laboral", rol.get("forma_integracion"))
+    rol = datos.get("rol_laboral", {}) or {}
+    # Usar _reemplazar_celda_entera para rol laboral (celdas merged en Tabla 1)
+    tareas_op = rol.get("tareas_operaciones") or ""
+    if tareas_op:
+        _reemplazar_celda_entera(doc, "Rol Laboral:", f"Rol Laboral: {tareas_op}", font_size=7.5)
+    else:
+        # Limpiar datos de Juan Carlos
+        _reemplazar_celda_entera(doc, "Rol Laboral:", "", font_size=7.5)
+    
+    # Sensorio-motor, cognitivo, psicológicos: van en una celda merged conjunta
+    sens = rol.get("sensorio_motor") or ""
+    cog = rol.get("cognitivo") or ""
+    psic = rol.get("psicologicos") or ""
+    soc = rol.get("social") or ""
+    
+    componentes = ""
+    if sens: componentes += f"Sensorio - motor: {sens}\n"
+    if cog: componentes += f"Cognitivo: {cog}\n"
+    if psic: componentes += f"Psicológicos: {psic}\n"
+    if soc: componentes += f"Social: {soc}"
+    
+    if componentes.strip():
+        _reemplazar_celda_entera(doc, "Sensorio - motor:", componentes.strip(), font_size=7.5)
+    else:
+        _reemplazar_celda_entera(doc, "Sensorio - motor:", "", font_size=7.5)
+    
+    tiempo_ej = rol.get("tiempo_ejecucion") or ""
+    if tiempo_ej:
+        _reemplazar_celda_entera(doc, "Tiempo de Ejecución:", f"Tiempo de Ejecución: {tiempo_ej}", font_size=7.5)
+    forma_int = rol.get("forma_integracion") or ""
+    if forma_int:
+        _reemplazar_celda_entera(doc, "Forma de integración laboral:", f"Forma de integración laboral: {forma_int}", font_size=7.5)
 
     # ─── SECCIÓN 6 — Tratamiento ATEL (Tabla 1, F23) ───
-    _trat_raw = datos.get("tratamiento_atel")
-    tratamientos = [t for t in (_trat_raw if isinstance(_trat_raw, list) else []) if isinstance(t, dict)]
-    if tratamientos:
-        texto_trat = ""
-        for t in tratamientos:
-            fecha = t.get("fecha", "")
-            esp = t.get("especialidad", "")
-            ips = t.get("ips", "")
-            cont = t.get("contenido", "")
-            texto_trat += f"{fecha} — {esp}. {ips}\n{cont}\n\n"
-        # En Tabla 1 F23, el label ocupa celdas [0]-[1] (merged) y el valor celdas [2]-[13] (merged)
-        # Buscar por texto clínico en vez del label para apuntar a la celda de valor
-        _reemplazar_celda_entera(doc, "ENFERMEDAD ACTUAL",
-                                 texto_trat.strip(), bold=False, font_size=7.5)
+    # tratamiento_atel puede ser: string directo, lista de dicts, o None
+    trat_raw = datos.get("tratamiento_atel") or ""
+    if isinstance(trat_raw, list):
+        # Lista de dicts → formatear
+        partes_trat = []
+        for t in trat_raw:
+            if isinstance(t, dict):
+                partes_trat.append(f"{t.get('fecha','')} — {t.get('especialidad','')}. {t.get('ips','')}\n{t.get('contenido','')}")
+            elif isinstance(t, str):
+                partes_trat.append(t)
+        texto_trat = "\n\n".join(partes_trat)
+    else:
+        texto_trat = str(trat_raw)
+    
+    if texto_trat.strip():
+        reemplazado = _reemplazar_celda_entera(doc, "ENFERMEDAD ACTUAL",
+                                               texto_trat.strip(), bold=False, font_size=7.5)
+        if not reemplazado:
+            # Fallback: buscar la celda del label "Tratamiento recibido"
+            _reemplazar_celda_entera(doc, "Tratamiento recibido por Rehabilitación",
+                                     texto_trat.strip(), bold=False, font_size=7.5)
+    else:
+        # Limpiar datos de Juan Carlos aunque no tengamos tratamiento propio
+        _reemplazar_celda_entera(doc, "ENFERMEDAD ACTUAL", "", bold=False, font_size=7.5)
 
     # ─── SECCIÓN 7 — Composición familiar (Tabla 2, F11-F17) ───
     fam = datos.get("composicion_familiar", {})
@@ -1991,43 +2156,75 @@ def generar_valoracion_desempeno(datos, output_name=None):
 
     # Cuidado personal (Tabla 2, F22-F31)
     cp = areas.get("cuidado_personal", {})
-    for item, nivel in cp.items():
-        _marcar_nivel_dificultad(doc, item, nivel)
+    for item, val in cp.items():
+        if isinstance(val, dict):
+            _marcar_nivel_dificultad(doc, item, val.get("nivel", ""), val.get("observacion", ""))
+        else:
+            _marcar_nivel_dificultad(doc, item, str(val))
 
     # Comunicación (Tabla 2 F32-F38, Tabla 3 F00-F04)
     com = areas.get("comunicacion", {})
-    for item, nivel in com.items():
-        _marcar_nivel_dificultad(doc, item, nivel)
+    for item, val in com.items():
+        if isinstance(val, dict):
+            _marcar_nivel_dificultad(doc, item, val.get("nivel", ""), val.get("observacion", ""))
+        else:
+            _marcar_nivel_dificultad(doc, item, str(val))
 
     # Movilidad (Tabla 3, F06-F15)
     mov = areas.get("movilidad", {})
     for item, val in mov.items():
-        if isinstance(val, tuple):
+        if isinstance(val, dict):
+            _marcar_nivel_dificultad(doc, item, val.get("nivel", ""), val.get("observacion", ""))
+        elif isinstance(val, tuple):
             nivel, obs = val
+            _marcar_nivel_dificultad(doc, item, nivel, obs)
         else:
-            nivel, obs = val, ""
-        _marcar_nivel_dificultad(doc, item, nivel, obs)
+            _marcar_nivel_dificultad(doc, item, str(val))
 
     # Aprendizaje (Tabla 3, F17-F25)
     apr = areas.get("aprendizaje", {})
-    for item, nivel in apr.items():
-        _marcar_nivel_dificultad(doc, item, nivel)
+    for item, val in apr.items():
+        if isinstance(val, dict):
+            _marcar_nivel_dificultad(doc, item, val.get("nivel", ""), val.get("observacion", ""))
+        else:
+            _marcar_nivel_dificultad(doc, item, str(val))
 
     # Vida doméstica (Tabla 3, F27-F36)
     vd = areas.get("vida_domestica", {})
-    for item, nivel in vd.items():
-        _marcar_nivel_dificultad(doc, item, nivel)
+    for item, val in vd.items():
+        if isinstance(val, dict):
+            _marcar_nivel_dificultad(doc, item, val.get("nivel", ""), val.get("observacion", ""))
+        else:
+            _marcar_nivel_dificultad(doc, item, str(val))
 
     # ─── SECCIÓN 9 — Concepto ocupacional (Tabla 3 F39 + Tabla 4 F00) ───
-    concepto = datos.get("concepto_ocupacional", "")
-    if concepto:
-        # Escribir TODO el concepto como un solo bloque continuo en Tabla 3 F39
-        _reemplazar_celda_entera(doc, "Afiliado de", concepto, bold=False, font_size=7.5)
+    concepto = datos.get("concepto_ocupacional") or c.get("concepto") or c.get("concepto_desempeno") or datos.get("concepto_desempeno") or ""
+    if not concepto:
+        nombre = p.get("nombre", "el paciente")
+        edad = p.get("edad", "")
+        edad_str = f" de {edad} años" if edad else ""
+        tipo_ev = s.get("tipo_evento") or "evento"
+        fecha_ev = s.get("fecha_evento", "")
+        fecha_str = f" ocurrido el {fecha_ev}" if fecha_ev else ""
+        diag = s.get("diagnosticos") or s.get("diagnostico_cie10") or "diagnóstico en estudio"
+        cargo = l.get("cargo") or e.get("cargo") or "su cargo"
+        if genero == "F":
+            concepto = f"Afiliada {nombre}{edad_str}, a quien se le realiza la valoración de desempeño ocupacional por presentar {tipo_ev}{fecha_str} con diagnóstico de {diag}. Labora en el cargo de {cargo}."
+        else:
+            concepto = f"Afiliado {nombre}{edad_str}, a quien se le realiza la valoración de desempeño ocupacional por presentar {tipo_ev}{fecha_str} con diagnóstico de {diag}. Labora en el cargo de {cargo}."
+    
+    _reemplazar_celda_entera(doc, "Afiliado de", concepto, bold=False, font_size=7.5)
+    # Limpiar la celda de continuación en Tabla 4 Row 0 que contiene datos residuales de Juan Carlos
+    _reemplazar_celda_entera(doc, "Núcleo familiar:", "", bold=False)
 
     # ─── SECCIÓN 10 — Orientación ocupacional (Tabla 4, F02) ───
-    orientacion = datos.get("orientacion_ocupacional", "")
+    orientacion = datos.get("orientacion_ocupacional") or datos.get("orientacion") or ""
     if orientacion:
-        _reemplazar_celda_entera(doc, "El afiliado puede realizar", orientacion, bold=False)
+        if genero == "F":
+            _reemplazar_celda_entera(doc, "El afiliado puede realizar",
+                orientacion.replace("El afiliado", "La afiliada"), bold=False)
+        else:
+            _reemplazar_celda_entera(doc, "El afiliado puede realizar", orientacion, bold=False)
 
     # ─── SECCIÓN 11 — Registro / Firmas (Tabla 4, F04-F07) ───
     prov = datos.get("proveedor", {})
@@ -2049,11 +2246,27 @@ def _extraer_secciones(datos, extra=None):
     Retorna (p, e, l, s, c, *extras) donde extras son los valores
     de las claves adicionales solicitadas (ej: 'visita', 'rehabilitacion').
     """
-    p = datos.get("paciente", {})
-    e = datos.get("empresa", {})
-    l = datos.get("laboral", {})
-    s = datos.get("siniestro", {})
-    c = datos.get("consulta", {})
+    p = datos.get("paciente", {}) or {}
+    e = datos.get("empresa", {}) or {}
+    l = dict(datos.get("laboral", {}) or {})  # copia para no mutar el original
+    s = datos.get("siniestro", {}) or {}
+    c = datos.get("consulta", {}) or {}
+    # Fallback: si laboral.cargo está vacío y empresa.cargo tiene valor, copiarlo
+    if not l.get("cargo") and e.get("cargo"):
+        l["cargo"] = e["cargo"]
+    # Fallback: siniestro puede tener "tipo_evento" o "tipo"
+    if not s.get("tipo") and s.get("tipo_evento"):
+        s["tipo"] = s["tipo_evento"]
+    if not s.get("tipo") and s.get("tipo_siniestro"):
+        s["tipo"] = s["tipo_siniestro"]
+    # Fallback: si paciente.afp está vacío pero hay dato en datos raíz
+    if not p.get("afp") and datos.get("afp_notas"):
+        p = dict(p)
+        p["afp"] = datos["afp_notas"]
+    # Fallback: si empresa.nit está vacío pero hay dato en datos raíz
+    if not e.get("nit") and datos.get("nit_empresa_notas"):
+        e = dict(e)
+        e["nit"] = datos["nit_empresa_notas"]
     result = [p, e, l, s, c]
 
     if extra:

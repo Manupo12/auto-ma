@@ -96,3 +96,64 @@ def test_runner_marca_error_si_step_falla(tmp_path, monkeypatch):
 
     assert "error" in resultado["estado"]
     assert "Deepgram" in resultado.get("error", "")
+
+
+def test_cadena_completa_no_mezcla_pacientes():
+    """Simula el workflow para Maribel y verifica que no salen datos de Juan Carlos."""
+    import sys, json, tempfile, os
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    from backend.workflow_steps.generar_formatos import _merge_paciente_con_llm
+    from backend.workflow_steps.leer_notas_crudas import _tiene_cc
+
+    # 1. Verificar que _tiene_cc encuentra CC en contenido con saltos de línea
+    contenido_voi = "3\n6\n2\n8\n0\n2\n2\n8"
+    assert _tiene_cc(Path("VOI_prueba.docx"), "36280228") is False # matching name only
+    assert _tiene_cc(Path("prueba.txt"), "36280228") is False # content empty
+    
+    # Create temp text file for _tiene_cc
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmpf:
+        tmpf.write(contenido_voi)
+        tmpf_name = tmpf.name
+    try:
+        assert _tiene_cc(Path(tmpf_name), "36280228") is True, "VOI con CC dígito a dígito no se encuentra"
+    finally:
+        os.unlink(tmpf_name)
+
+    # 2. Verificar merge no mezcla pacientes
+    datos_llm = {
+        "paciente": {"nombre": "JUAN LLM", "documento": "36280228"},
+        "empresa": {"nombre": "EMPRESA LLM"},
+        "siniestro": {"id_siniestro": "503000000"},
+    }
+
+    json_sintetizado = {
+        "paciente": {"nombre": "JUAN LLM", "documento": "36280228"},
+        "_portales": {
+            "medifolios": {
+                "nombre1": "MARIBEL", "apellido1": "FUENTES", "apellido2": "MEDINA",
+                "numero_id": "36280228", "telefono": "3001234567",
+            },
+            "positiva": {
+                "datos_asegurado": {"empresa": "ALCALDIA PITALITO", "cargo_asegurado": "TECNICA ADMINISTRATIVA", "nit": "900123456"},
+                "autorizaciones": [{"descripcion": "503375273", "estado": "23/05/2025"}],
+            },
+        },
+    }
+
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["STORAGE_DIR"] = tmp
+        data_dir = Path(tmp) / "data"
+        data_dir.mkdir()
+        (data_dir / "36280228-completo.json").write_text(json.dumps(json_sintetizado), encoding="utf-8")
+
+        resultado = _merge_paciente_con_llm(datos_llm, "36280228")
+
+    assert resultado["paciente"]["nombre"] == "MARIBEL FUENTES MEDINA"
+    assert resultado["empresa"]["nombre"] == "ALCALDIA PITALITO"
+    assert resultado["laboral"]["cargo"] == "TECNICA ADMINISTRATIVA"
+    assert resultado["siniestro"]["id_siniestro"] == "503375273"
+    assert resultado["siniestro"]["fecha_evento"] == "23/05/2025"
+    assert "Obrero de tratamiento roca" not in str(resultado)
+    assert "BOLIVARIANA DE MINERALES" not in str(resultado)

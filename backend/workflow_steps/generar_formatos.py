@@ -25,10 +25,11 @@ def _log(msg: str):
 def _cargar_json_paciente(cc: str) -> dict:
     """Carga el JSON del paciente para enriquecer los datos del LLM."""
     import glob as _glob
+    storage_dir = Path(os.getenv("STORAGE_DIR", "./storage"))
     patterns = [
-        str(STORAGE / "data" / f"{cc}-completo.json"),
-        str(STORAGE / "data" / f"*{cc}*completo.json"),
-        str(STORAGE / "data" / f"{cc}.json"),
+        str(storage_dir / "data" / f"{cc}-completo.json"),
+        str(storage_dir / "data" / f"*{cc}*completo.json"),
+        str(storage_dir / "data" / f"{cc}.json"),
     ]
     for pat in patterns:
         matches = sorted(_glob.glob(pat), key=os.path.getmtime, reverse=True)

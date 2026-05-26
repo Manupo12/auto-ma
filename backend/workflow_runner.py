@@ -238,6 +238,7 @@ def _build_kwargs(step_name: str, contexto: dict) -> dict:
         return {
             "datos_clinicos": sintesis.get("datos_clinicos") or {},
             "paciente_cc": cc,
+            "datos_portales_cache": contexto.get("resolver_paciente", {}).get("datos_portales"),
         }
     if step_name == "generar_formatos":
         # Usar datos enriquecidos de la verificacion si existen

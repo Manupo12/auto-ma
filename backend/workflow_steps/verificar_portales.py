@@ -15,23 +15,21 @@ from typing import Dict
 
 def _log(msg: str):
     print(f"[VERIFICAR {datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
-
-
 CAMPOS_SENSIBLES = [
-    ("nombre", ["paciente.nombre", "nombre", "nombre1", "nombre_detectado"]),
-    ("documento", ["paciente.documento", "cc", "numero_id", "documento"]),
-    ("siniestro", ["siniestro.id_siniestro", "siniestro_id", "siniestro_medi", "id"]),
-    ("fecha_siniestro", ["siniestro.fecha_evento", "fecha_siniestro", "fecha"]),
-    ("diagnostico_cie10", ["siniestro.diagnostico_cie10", "diagnostico_cie10", "diagnostico", "cie10_encontrados"]),
-    ("descripcion_diagnostico", ["siniestro.descripcion", "descripcion"]),
-    ("empresa", ["empresa.nombre", "empresa"]),
-    ("cargo", ["empresa.cargo", "cargo", "paciente.ocupacion"]),
-    ("direccion", ["paciente.direccion", "direccion"]),
-    ("telefono", ["paciente.telefono", "telefono"]),
-    ("eps", ["paciente.eps_ips", "eps"]),
-    ("afp", ["paciente.afp", "afp"]),
-    ("tipo_evento", ["siniestro.tipo_evento", "tipo"]),
-    ("segmento", ["siniestro.segmento", "segmento_corporal", "segmento"]),
+    ("paciente.nombre", ["paciente.nombre", "nombre", "nombre1", "nombre_detectado"]),
+    ("paciente.documento", ["paciente.documento", "cc", "numero_id", "documento"]),
+    ("siniestro.id_siniestro", ["siniestro.id_siniestro", "siniestro_id", "siniestro_medi", "id"]),
+    ("siniestro.fecha_evento", ["siniestro.fecha_evento", "fecha_siniestro", "fecha"]),
+    ("siniestro.diagnostico_cie10", ["siniestro.diagnostico_cie10", "diagnostico_cie10", "diagnostico", "cie10_encontrados"]),
+    ("siniestro.descripcion", ["siniestro.descripcion", "descripcion"]),
+    ("empresa.nombre", ["empresa.nombre", "empresa"]),
+    ("empresa.cargo", ["empresa.cargo", "cargo", "paciente.ocupacion"]),
+    ("paciente.direccion", ["paciente.direccion", "direccion"]),
+    ("paciente.telefono", ["paciente.telefono", "telefono"]),
+    ("paciente.eps_ips", ["paciente.eps_ips", "eps"]),
+    ("paciente.afp", ["paciente.afp", "afp"]),
+    ("siniestro.tipo_evento", ["siniestro.tipo_evento", "tipo"]),
+    ("siniestro.segmento", ["siniestro.segmento", "segmento_corporal", "segmento"]),
 ]
 
 
@@ -51,59 +49,35 @@ def _get_valor_sintesis(datos: dict, rutas: list) -> str:
     return ""
 
 
-def _extraer_de_portales(cc: str) -> dict:
-    """Extrae datos de portales. Paciente nuevo -> Playwright OBLIGATORIO."""
-    from pathlib import Path
-    from datetime import timedelta
+def _extraer_de_portales(cc: str, datos_portales_cache: dict = None) -> dict:
+    """Usa datos del portal YA extraidos por resolver_paciente (paso 2)."""
     import json as _json
 
-    cache_path = Path(os.getenv("STORAGE_DIR", "./storage")) / "data" / f"{cc}-completo.json"
-    es_nuevo = not cache_path.exists()
+    if datos_portales_cache and not datos_portales_cache.get("_vacio"):
+        _log(f"Usando datos del portal del paso 2 (resolver_paciente)")
+        return datos_portales_cache
 
-    # 1. Si el paciente ya tiene cache fresco (<24h), usarlo
-    if not es_nuevo:
+    cache_path = Path(os.getenv("STORAGE_DIR", "./storage")) / "data" / f"{cc}-completo.json"
+    if cache_path.exists():
         try:
             cached = _json.loads(cache_path.read_text(encoding="utf-8"))
-            extraido = cached.get("_meta", {}).get("extraido_en", "")
-            if extraido:
-                dt = datetime.fromisoformat(extraido)
-                if datetime.now() - dt < timedelta(hours=24):
-                    medi = cached.get("medifolios", {})
-                    pos = cached.get("positiva", {})
-                    if medi.get("nombre1") or pos.get("siniestro_id") or (pos.get("siniestros") and pos["siniestros"][0].get("id")):
-                        _log("Cache fresco (<24h) - usando datos existentes")
-                        return cached
+            medi = cached.get("medifolios", {})
+            pos = cached.get("positiva", {})
+            if medi.get("nombre1") or pos.get("siniestro_id") or (pos.get("siniestros") and pos["siniestros"][0].get("id")):
+                _log(f"Cache JSON del portal encontrado: {cache_path.name}")
+                return cached
         except Exception:
             pass
 
-    # 2. Extraer de portales con Playwright (OBLIGATORIO para nuevos, refresco para existentes)
-    _log("Extrayendo de portales con Playwright...")
+    _log("Extrayendo de portales con Playwright (ultimo recurso)...")
     try:
         from backend.playwright_real.orquestador import extraer_paciente_completo
         resultado = asyncio.run(extraer_paciente_completo(cc, guardar=True))
-        parcial = resultado.get("_meta", {}).get("parcial", True)
-        _log(f"Playwright: {'parcial' if parcial else 'completo'}")
+        _log(f"Playwright: {'parcial' if resultado.get('_meta',{}).get('parcial') else 'completo'}")
         return resultado
     except Exception as e:
         _log(f"Playwright error: {e}")
 
-    # 3. Si Playwright fallo y NO es nuevo, usar cache viejo como emergencia
-    if not es_nuevo and cache_path.exists():
-        try:
-            _log("Playwright fallo - usando cache viejo como emergencia")
-            return _json.loads(cache_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-    # 4. Paciente nuevo sin portales -> error critico, detener workflow
-    if es_nuevo:
-        _log("PACIENTE NUEVO sin acceso a portales - VERIFICACION IMPOSIBLE")
-        return {
-            "_meta": {"parcial": True, "error": "Portales no disponibles para paciente nuevo. Intente de nuevo.", "extraido_en": datetime.now().isoformat()},
-            "medifolios": {}, "positiva": {}
-        }
-
-    # 5. Paciente existente, sin portales ni cache
     return {
         "_meta": {"parcial": True, "error": "Sin datos de portales", "extraido_en": datetime.now().isoformat()},
         "medifolios": {}, "positiva": {}
@@ -130,20 +104,21 @@ def _normalizar(texto: str) -> str:
     return " ".join(t.split())
 
 
-def ejecutar(datos_clinicos: dict, paciente_cc: str) -> dict:
+def ejecutar(datos_clinicos: dict, paciente_cc: str, datos_portales_cache: dict = None) -> dict:
     """
     Punto de entrada. Verifica los datos sintetizados contra portales.
     
     Args:
         datos_clinicos: dict con datos sintetizados por la IA
         paciente_cc: cedula del paciente
+        datos_portales_cache: datos del portal cacheados del paso 2
     
     Returns:
         dict con datos_enriquecidos, verificaciones, campos_faltantes
     """
     _log(f"Verificando CC {paciente_cc} contra portales...")
 
-    portales = _extraer_de_portales(paciente_cc)
+    portales = _extraer_de_portales(paciente_cc, datos_portales_cache)
     parcial = portales.get("_meta", {}).get("parcial", True)
     medi = portales.get("medifolios", {})
     pos = portales.get("positiva", {})
@@ -192,8 +167,8 @@ def ejecutar(datos_clinicos: dict, paciente_cc: str) -> dict:
         })
 
     for v in verificaciones:
-        if v["estado"] == "discrepancia" and v["campo"] in ("nombre", "documento", "telefono", "direccion"):
-            _set_nested(datos_enriquecidos, f"paciente.{v['campo']}", v["portal"])
+        if v["estado"] == "discrepancia" and v["campo"].startswith("paciente."):
+            _set_nested(datos_enriquecidos, v["campo"], v["portal"])
             v["estado"] = "corregido_por_portal"
             v["nota"] = f"Auto-corregido: LLM={v['sintesis']} -> Portal={v['portal']}"
             _log(f"Auto-correccion identidad: {v['campo']} '{v['sintesis']}' -> '{v['portal']}'")

@@ -825,9 +825,12 @@ REGLAS COMPLEMENTARIAS CC_:
   NUNCA inventar composición familiar. Si no hay datos del CC_, dejar vacío y agregar a campos_faltantes.
 - rol_laboral.sensorio_motor: usar "Rol laboral/componentes (CC_)" si está disponible.
 
-REGLAS PARA areas_ocupacionales (Sección 8 VOI):
+REGLAS PRECISAS PARA areas_ocupacionales (Sección 8 VOI):
+- NIVELES: "no dificultad"=lo hace sin problema | "dificultad leve"=lo hace con alguna molestia | "dificultad moderada"=dolor/limitación notable al hacerlo | "dificultad severa"=no puede sin ayuda | "dificultad completa"=totalmente dependiente
+- IMPORTANTE: NO asumas "no dificultad" por defecto. Si el paciente menciona dolor/limitación/evitación → marca al menos "dificultad leve".
+- Para CADA item de las 5 categorías, indica el nivel basado en lo que el paciente REPORTÓ. Si no hay info específica para un item, pon "n/a".
 - Revisar las NOTAS MÉDICAS (CC_) y la transcripción buscando síntomas y limitaciones reportados.
-- Mapear a áreas usando estas reglas (nivel: "dificultad moderada"=dolor al hacerlo; "dificultad severa"=no puede):
+- Mapear a áreas usando estas reglas:
   * "dolor al bañarse / refregarse / lavarse" → cuidado_personal["Lavarse"] = {"nivel": "dificultad moderada", "observacion": "Dificultad para refregarse"}
   * "dolor al cocinar / preparar alimentos / cocinar" → vida_domestica["Preparar comidas"] = {"nivel": "dificultad moderada", "observacion": "Al cocinar, preparar alimentos"}
   * "dolor al usar cubiertos / cortar alimentos / alimentarse" → cuidado_personal["Alimentarse"] = {"nivel": "dificultad leve", "observacion": "Al utilizar los cubiertos, al cortar los alimentos"}
@@ -836,6 +839,7 @@ REGLAS PARA areas_ocupacionales (Sección 8 VOI):
   * "dolor al hacer oficio / aseo del hogar / barrer / trapear" → vida_domestica["Limpiar / Hacer oficio"] = {"nivel": "dificultad moderada", "observacion": "Al realizar labores domésticas o de aseo"}
 - Cada valor puede ser string "nivel" O dict {"nivel": "...", "observacion": "..."}. Usar dict cuando hay observación específica.
 - NO dejar areas_ocupacionales completamente vacío si las notas médicas reportan síntomas funcionales.
+- NUNCA pongas TODOS los items en "no dificultad". Si el paciente menciona dolor en codos/manos/muñecas, al menos "dificultad leve" aplica a items de mano/brazo.
 - orientacion_ocupacional: OBLIGATORIO completar. Si paciente FEMENINA: "La afiliada puede realizar las actividades laborales, teniendo en cuenta las recomendaciones médico-ocupacionales." Si masculino: "El afiliado puede realizar...". NUNCA dejar vacío.
 """
 
@@ -993,6 +997,65 @@ def sintetizar(transcripcion: Dict, datos_portales: Dict, notas_crudas: List, fo
                 _log("Inyectado consulta.concepto desde CC_ (marcador reemplazado)")
     except Exception as e_inj:
         _log(f"WARN: inyección post-síntesis falló (no crítico): {e_inj}")
+
+    # ─── POST-PROCESAMIENTO: verificar que tratamiento_atel tenga MULTIPLES fechas ───
+    try:
+        trat = str(datos_clinicos.get("tratamiento_atel") or "")
+        if trat:
+            import re as _re_trat
+            fechas_trat = _re_trat.findall(r'\b(\d{2}/\d{2}/\d{4})\b', trat)
+            if len(fechas_trat) <= 1:
+                # Buscar en notas crudas si hay mas consultas
+                if notas_crudas:
+                    for nc in notas_crudas:
+                        nc_text = str(nc) if isinstance(nc, str) else json.dumps(nc)
+                        fechas_nc = _re_trat.findall(r'\b(\d{2}/\d{2}/\d{4})\b', nc_text)
+                        especialidades_nc = _re_trat.findall(r'(FISIATRIA|MEDICINA LABORAL|ELECTROMIOGRAF)', nc_text, _re_trat.IGNORECASE)
+                        if len(fechas_nc) > 1 and len(especialidades_nc) > 0:
+                            # Hay mas datos en notas crudas, concatenar
+                            datos_clinicos["tratamiento_atel_notas_extra"] = True
+                            _log(f"ADVERTENCIA: tratamiento_atel tiene solo {len(fechas_trat)} fecha(s), "
+                                 f"pero notas crudas tienen {len(fechas_nc)} fechas con {len(especialidades_nc)} especialidades")
+                            break
+    except Exception as e_trat:
+        _log(f"WARN: post-procesamiento tratamiento_atel falló: {e_trat}")
+
+    def _limpiar_concepto(concepto: str) -> str:
+        """Elimina texto de footer/registro que el LLM a veces incluye en el concepto."""
+        if not concepto:
+            return concepto
+        marcadores = [
+            "8. | observacion",
+            "8. | observación",
+            "9. | registro",
+            "insertar firma",
+            "equipo de rehabilitacion",
+            "equipo de rehabilitación",
+            "rehabilitacion integral laboral",
+            "rehabilitación integral laboral",
+            "rilo sas",
+            "medico laboral",
+            "médico laboral",
+            "fisiatra especialista",
+            "terapeuta especialista",
+            "elaboro",
+            "elaboró",
+            "revision por proveedor",
+            "revisión por proveedor"
+        ]
+        concepto_lower = concepto.lower()
+        min_idx = len(concepto)
+        for marcador in marcadores:
+            idx = concepto_lower.find(marcador)
+            if idx != -1 and idx < min_idx:
+                min_idx = idx
+        if min_idx < len(concepto):
+            concepto = concepto[:min_idx].strip()
+        return concepto.strip()
+
+    # Sanitizar el concepto clínico
+    if "consulta" in datos_clinicos and "concepto" in datos_clinicos["consulta"]:
+        datos_clinicos["consulta"]["concepto"] = _limpiar_concepto(datos_clinicos["consulta"]["concepto"])
 
     paciente = datos_clinicos.get("paciente", {}) or {}
     siniestro = datos_clinicos.get("siniestro", {}) or {}

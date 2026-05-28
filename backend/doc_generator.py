@@ -26,7 +26,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 
 def _sanitize_filename(name: str) -> str:
-    """Reemplaza caracteres inválidos en nombres de archivo (/, \, :, *, ?, ", <, >, |)."""
+    """Reemplaza caracteres invalidos en nombres de archivo (/, backslash, :, *, ?, \", <, >, |)."""
     return re.sub(r'[/\\:*?"<>|]', '-', name)
 
 BASE = Path(os.getenv("RILO_ROOT", str(Path(__file__).parent.parent)))
@@ -134,23 +134,27 @@ def _eliminar_hyperlinks(parrafo):
         parrafo._element.remove(hl)
 
 
-def _buscar_y_reemplazar(doc, etiqueta, valor):
+def _buscar_y_reemplazar(doc, etiqueta, valor, table_indices=None):
     """
-    Busca etiqueta en TODAS las tablas y reemplaza el valor en la celda
-    adyacente. Usa _tc para detectar el fin de la región fusionada de la
+    Busca etiqueta en TODAS las tablas (o las especificadas en table_indices)
+    y reemplaza el valor en la celda adyacente. Usa _tc para detectar el fin de la región fusionada de la
     etiqueta — evita el bug donde el texto de valor contiene la etiqueta.
     """
     etiqueta_lower = etiqueta.lower().strip()
     valor_str = _normalizar_valor(valor)
     celdas_escritas = set()
 
-    for tabla in doc.tables:
+    tablas = doc.tables
+    if table_indices is not None:
+        tablas = [doc.tables[idx] for idx in table_indices if idx < len(doc.tables)]
+
+    for tabla in tablas:
         for fila in tabla.rows:
             celdas = fila.cells
             # 1. Encontrar primera celda que contiene la etiqueta
             label_start = None
             for i, celda in enumerate(celdas):
-                if etiqueta_lower in celda.text.lower():
+                if etiqueta_lower in celda.text.lower() and len(celda.text) < 200:
                     label_start = i
                     break
             if label_start is None:
@@ -187,7 +191,7 @@ def _buscar_y_reemplazar(doc, etiqueta, valor):
     return False
 
 
-def _marcar_opcion(doc, etiqueta, opcion_a_marcar):
+def _marcar_opcion(doc, etiqueta, opcion_a_marcar, table_indices=None):
     """
     Marca con X la opción correcta en una fila de checkboxes.
     Identifica los bloques de opciones y sus casillas adyacentes
@@ -198,7 +202,11 @@ def _marcar_opcion(doc, etiqueta, opcion_a_marcar):
     opcion_lower = opcion_a_marcar.lower().strip()
     marcado = False
 
-    for tabla in doc.tables:
+    tablas = doc.tables
+    if table_indices is not None:
+        tablas = [doc.tables[idx] for idx in table_indices if idx < len(doc.tables)]
+
+    for tabla in tablas:
         for fila in tabla.rows:
             celdas = fila.cells
             if not any(etiqueta_lower in c.text.lower() for c in celdas):
@@ -499,14 +507,17 @@ def _reemplazar_en_parrafos(doc, viejo, nuevo):
             _eliminar_hyperlinks(p)
 
 
-def _reemplazar_en_tablas(doc, viejo, nuevo):
-    """Reemplaza 'viejo' por 'nuevo' dentro de todas las celdas de tablas.
+def _reemplazar_en_tablas(doc, viejo, nuevo, table_indices=None):
+    """Reemplaza 'viejo' por 'nuevo' dentro de las celdas de tablas (o las especificadas).
     Usa cell._tc para deduplicar celdas fusionadas (merged cells)."""
     if not viejo:
         return
     nuevo = str(nuevo) if nuevo is not None else ""
     procesadas = set()
-    for tabla in doc.tables:
+    tablas = doc.tables
+    if table_indices is not None:
+        tablas = [doc.tables[idx] for idx in table_indices if idx < len(doc.tables)]
+    for tabla in tablas:
         for fila in tabla.rows:
             for celda in fila.cells:
                 tc = celda._tc
@@ -544,10 +555,10 @@ def _detectar_genero(nombre: str) -> str:
     return "M"
 
 
-def _reemplazar_celda_entera(doc, texto_busqueda, texto_nuevo, bold=None, font_size=None):
+def _reemplazar_celda_entera(doc, texto_busqueda, texto_nuevo, bold=None, font_size=None, table_indices=None):
     """
-    Busca una celda que CONTENGA texto_busqueda y reemplaza TODO su
-    contenido con texto_nuevo. Usa cell._tc para deduplicar.
+    Busca una celda que CONTENGA texto_busqueda (robusto y case-insensitive)
+    y reemplaza TODO su contenido con texto_nuevo. Usa cell._tc para deduplicar.
     Ideal para celdas con texto largo (motivo consulta, concepto, etc.)
     donde _reemplazar_en_tablas causaría duplicación.
     Si bold no es None, fuerza el formato bold del texto.
@@ -555,15 +566,30 @@ def _reemplazar_celda_entera(doc, texto_busqueda, texto_nuevo, bold=None, font_s
     """
     if not texto_busqueda:
         return False
+    
+    def _norm(t):
+        import re
+        import unicodedata
+        t = re.sub(r'[\s\-]+', ' ', t.lower().strip())
+        t = unicodedata.normalize("NFD", t)
+        t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+        return t
+
+    busqueda_norm = _norm(texto_busqueda)
     procesadas = set()
-    for tabla in doc.tables:
+    
+    tablas = doc.tables
+    if table_indices is not None:
+        tablas = [doc.tables[idx] for idx in table_indices if idx < len(doc.tables)]
+
+    for tabla in tablas:
         for fila in tabla.rows:
             for celda in fila.cells:
                 tc = celda._tc
                 if tc in procesadas:
                     continue
                 procesadas.add(tc)
-                if texto_busqueda in celda.text:
+                if busqueda_norm in _norm(celda.text):
                     _poner_texto(celda, texto_nuevo, bold=bold, font_size=font_size)
                     return True
     return False
@@ -1756,9 +1782,9 @@ def generar_valoracion_desempeno(datos, output_name=None):
                     break
 
     # Campos label→value (buscar por substrings exactos del template)
-    _buscar_y_reemplazar(doc, "Nombre del Trabajador", p.get("nombre"))
-    _buscar_y_reemplazar(doc, "Número de documento", p.get("documento"))
-    _buscar_y_reemplazar(doc, "Identificación del siniestro", s.get("id_siniestro"))
+    _buscar_y_reemplazar(doc, "Nombre del Trabajador", p.get("nombre"), table_indices=[0])
+    _buscar_y_reemplazar(doc, "Número de documento", p.get("documento"), table_indices=[0])
+    _buscar_y_reemplazar(doc, "Identificación del siniestro", s.get("id_siniestro"), table_indices=[0])
 
     # Fecha de nacimiento en celdas individuales (F09-F10)
     if p.get("fecha_nacimiento"):
@@ -1776,46 +1802,93 @@ def generar_valoracion_desempeno(datos, output_name=None):
     # Dominancia con checkbox
     dom = p.get("dominancia", "")
     if dom:
-        _marcar_opcion(doc, "Dominancia", dom)
+        _marcar_opcion(doc, "Dominancia", dom, table_indices=[0])
 
-    _buscar_y_reemplazar(doc, "Estado civil", p.get("estado_civil"))
+    _buscar_y_reemplazar(doc, "Estado civil", p.get("estado_civil"), table_indices=[0])
 
-    # Nivel educativo — checkbox (buscar la opción en las filas 13-16)
+    # Nivel educativo — checkbox directo por fila (Tabla 0, F13-F15)
+    # Estructura: cada fila F13-F15 tiene opciones agrupadas y el checkbox X en C31-C34
+    # F13: Formacion empirica | Basica primaria | Bachillerato vocacional 9°
+    # F14: Bachillerato modalidad | Tecnico/Tecnologico | Profesional
+    # F15: Especializacion/postgrado/maestria | Formacion informal oficios | Analfabeta
     nivel = p.get("nivel_educativo", "")
     if nivel:
-        _marcar_opcion(doc, "Nivel educativo", nivel)
+        nivel_lower = nivel.lower().strip()
+        _nivel_fila_map = {
+            "formacion empirica": 13, "formación empírica": 13,
+            "basica primaria": 13, "básica primaria": 13,
+            "bachillerato vocacional": 13,
+            "bachillerato modalidad": 14,
+            "tecnico": 14, "tecnológico": 14,
+            "profesional": 14,
+            "especializacion": 15, "postgrado": 15, "maestria": 15, "maestría": 15,
+            "formacion informal": 15, "formación informal": 15,
+            "analfabeta": 15,
+        }
+        _target_fila = None
+        for k, v in _nivel_fila_map.items():
+            if k in nivel_lower:
+                _target_fila = v
+                break
+        if _target_fila is not None:
+            for _f in [13, 14, 15]:
+                try:
+                    _row = doc.tables[0].rows[_f]
+                    if len(_row.cells) > 31 and _row.cells[31].text.strip().upper() == "X":
+                        _poner_texto(_row.cells[31], "")
+                except (IndexError, AttributeError):
+                    pass
+            try:
+                _poner_texto(doc.tables[0].rows[_target_fila].cells[31], "X")
+            except (IndexError, AttributeError) as e:
+                _log(f"[WARN] No se pudo marcar nivel educativo: {e}")
+        else:
+            _log(f"[WARN] Nivel educativo no reconocido: '{nivel}'")
 
     # Especificar formación y oficios
     formacion = p.get("formacion_oficios") or datos.get("formacion_oficios", "")
     if formacion:
-        _buscar_y_reemplazar(doc, "Especificar formación y oficios que conoce", formacion)
+        _buscar_y_reemplazar(doc, "Especificar formación y oficios que conoce", formacion, table_indices=[0])
 
-    _buscar_y_reemplazar(doc, "Teléfonos trabajadores", p.get("telefono"))
+    _buscar_y_reemplazar(doc, "Teléfonos trabajadores", p.get("telefono"), table_indices=[0])
 
     # Dirección residencia y ciudad — con checkbox Urbano/Rural
     dir_val = p.get("direccion", "")
     if dir_val:
-        _buscar_y_reemplazar(doc, "Dirección residencia y ciudad", dir_val)
+        _buscar_y_reemplazar(doc, "Dirección residencia y ciudad", dir_val, table_indices=[0])
+    # Urbano/Rural — checkbox directo (Tabla 0 F18, C28=Urbano, C34=Rural)
     zona = p.get("zona", "")
     if zona:
-        _marcar_opcion(doc, "Urbano", zona)
+        try:
+            _fila_ur = doc.tables[0].rows[18]
+            _zona_clean = zona.strip().lower()
+            if "urbano" in _zona_clean:
+                _poner_texto(_fila_ur.cells[28], "X")
+                if len(_fila_ur.cells) > 34:
+                    _poner_texto(_fila_ur.cells[34], "")
+            elif "rural" in _zona_clean:
+                _poner_texto(_fila_ur.cells[28], "")
+                if len(_fila_ur.cells) > 34:
+                    _poner_texto(_fila_ur.cells[34], "X")
+        except (IndexError, AttributeError) as e:
+            _log(f"[WARN] Error marcando Urbano/Rural: {e}")
 
     diag_val = s.get("diagnostico_cie10") or s.get("diagnosticos") or ""
     if diag_val:
         # Intentar reemplazar la celda con el diagnóstico del template de Juan Carlos
-        reemplazado = _reemplazar_celda_entera(doc, "HERIDA DEL CUARTO DEDO", diag_val, bold=False, font_size=7.5)
+        reemplazado = _reemplazar_celda_entera(doc, "HERIDA DEL CUARTO DEDO", diag_val, bold=False, font_size=7.5, table_indices=[0])
         if not reemplazado:
             # Fallback: buscar la celda de Diagnóstico por su label
-            _reemplazar_celda_entera(doc, "Diagnóstico(s) clínico(s)", diag_val, bold=False, font_size=7.5)
+            _reemplazar_celda_entera(doc, "Diagnóstico(s) clínico(s)", diag_val, bold=False, font_size=7.5, table_indices=[0])
     else:
         # Limpiar datos de Juan Carlos aunque no tengamos diagnóstico propio
-        _reemplazar_celda_entera(doc, "HERIDA DEL CUARTO DEDO", "", bold=False, font_size=7.5)
-    _buscar_y_reemplazar(doc, "Fecha(s) del evento(s) ATEL", s.get("fecha_evento"))
+        _reemplazar_celda_entera(doc, "HERIDA DEL CUARTO DEDO", "", bold=False, font_size=7.5, table_indices=[0])
+    _buscar_y_reemplazar(doc, "Fecha(s) del evento(s) ATEL", s.get("fecha_evento"), table_indices=[0])
 
     # Eventos No laborales (Si/No checkbox + campos fecha/diagnóstico)
     ev_nolab = s.get("eventos_no_laborales", "")
     if ev_nolab:
-        _marcar_opcion(doc, "Eventos No laborales", ev_nolab)
+        _marcar_opcion(doc, "Eventos No laborales", ev_nolab, table_indices=[0])
         # Workaround: limpiar celdas checkbox de Diagnostico en la fila
         # de Eventos No laborales. La celda tc[9] abarca columnas 22-34
         # (gridSpan=13) y _marcar_opcion puede dejar X residuales del template.
@@ -1827,29 +1900,52 @@ def generar_valoracion_desempeno(datos, output_name=None):
                         if celdas[j].text.strip().upper() == "X":
                             _poner_texto(celdas[j], "")
 
-    _buscar_y_reemplazar(doc, "EPS - IPS", p.get("eps_ips"))
-    _buscar_y_reemplazar(doc, "AFP", p.get("afp"))
+    _buscar_y_reemplazar(doc, "EPS - IPS", p.get("eps_ips"), table_indices=[0])
+    _buscar_y_reemplazar(doc, "AFP", p.get("afp"), table_indices=[0])
     # Tiempo total de incapacidad: solo reemplazar si NO es "Sin datos" (template tiene "0 | Sin datos")
     t_incap = s.get("tiempo_incapacidad", "")
     if t_incap and t_incap.strip().lower() != "sin datos":
-        _buscar_y_reemplazar(doc, "Tiempo total de incapacidad", t_incap)
-    _buscar_y_reemplazar(doc, "Empresa donde labora", e.get("nombre"))
+        _buscar_y_reemplazar(doc, "Tiempo total de incapacidad", t_incap, table_indices=[0])
+    _buscar_y_reemplazar(doc, "Empresa donde labora", e.get("nombre"), table_indices=[0])
 
-    # Vinculación laboral (NO/SI checkbox)
+    # Vinculación laboral (NO/SI checkbox) — acceso directo (Tabla 0 F26, C1=NO, C8=SI)
     vinc = l.get("vinculacion", "")
     if vinc:
-        _marcar_opcion(doc, "Vinculación laboral", vinc)
+        try:
+            _fila_vinc = doc.tables[0].rows[26]
+            _vinc_clean = vinc.strip().upper()
+            _poner_texto(_fila_vinc.cells[1], "")  # limpiar NO
+            _poner_texto(_fila_vinc.cells[8], "")  # limpiar SI
+            if "SI" in _vinc_clean:
+                _poner_texto(_fila_vinc.cells[8], "X")
+            elif "NO" in _vinc_clean:
+                _poner_texto(_fila_vinc.cells[1], "X")
+        except (IndexError, AttributeError) as e:
+            _log(f"[WARN] Error marcando Vinculacion laboral: {e}")
 
-    _buscar_y_reemplazar(doc, "Forma de vinculación laboral", l.get("forma_vinculacion"))
+    _buscar_y_reemplazar(doc, "Forma de vinculación laboral", l.get("forma_vinculacion"), table_indices=[0])
 
-    # Modalidad (Presencial/Virtual checkbox + tiempo)
+    # Modalidad — checkbox directo (Tabla 0 F28, C9=Presencial, C21=teletrabajo, C32=trabajo en casa)
     mod = l.get("modalidad", "")
     if mod:
-        _marcar_opcion(doc, "Modalidad", mod)
+        try:
+            _fila_mod = doc.tables[0].rows[28]
+            _mod_clean = mod.strip().lower()
+            _poner_texto(_fila_mod.cells[9], "")   # limpiar Presencial X
+            _poner_texto(_fila_mod.cells[21], "")  # limpiar teletrabajo X
+            _poner_texto(_fila_mod.cells[32], "")  # limpiar trabajo en casa X
+            if "presencial" in _mod_clean:
+                _poner_texto(_fila_mod.cells[9], "X")
+            elif "teletrabajo" in _mod_clean or "virtual" in _mod_clean:
+                _poner_texto(_fila_mod.cells[21], "X")
+            elif "trabajo en casa" in _mod_clean:
+                _poner_texto(_fila_mod.cells[32], "X")
+        except (IndexError, AttributeError) as e:
+            _log(f"[WARN] Error marcando Modalidad: {e}")
     tiempo_modal = l.get("tiempo_modalidad") or l.get("antiguedad_empresa") or ""
-    _buscar_y_reemplazar(doc, "Tiempo de la modalidad", tiempo_modal)
+    _buscar_y_reemplazar(doc, "Tiempo de la modalidad", tiempo_modal, table_indices=[0])
 
-    _buscar_y_reemplazar(doc, "NIT de la Empresa", e.get("nit"))
+    _buscar_y_reemplazar(doc, "NIT de la Empresa", e.get("nit"), table_indices=[0])
 
     # Fecha ingreso empresa en celdas individuales (F30)
     if l.get("fecha_ingreso_empresa"):
@@ -1890,10 +1986,10 @@ def generar_valoracion_desempeno(datos, output_name=None):
         contacto_str = f"{contacto_str}/ {cargo_str}"
     elif cargo_str:
         contacto_str = cargo_str
-    _buscar_y_reemplazar(doc, "Contacto en empresa", contacto_str)
-    _buscar_y_reemplazar(doc, "Correo(s) electrónico(s)", e.get("correo"))
-    _buscar_y_reemplazar(doc, "Teléfonos de contacto empresa", e.get("telefono"))
-    _buscar_y_reemplazar(doc, "Dirección empresa", e.get("direccion"))
+    _buscar_y_reemplazar(doc, "Contacto en empresa", contacto_str, table_indices=[0])
+    _buscar_y_reemplazar(doc, "Correo(s) electrónico(s)", e.get("correo"), table_indices=[0])
+    _buscar_y_reemplazar(doc, "Teléfonos de contacto empresa", e.get("telefono"), table_indices=[0])
+    _buscar_y_reemplazar(doc, "Dirección empresa", e.get("direccion"), table_indices=[0])
 
     # ─── SECCIÓN 3 — Historia ocupacional (Tabla 1, F02-F06) ───
     tabla1 = doc.tables[1]
@@ -1943,10 +2039,10 @@ def generar_valoracion_desempeno(datos, output_name=None):
     # Otros oficios y oficios de interés (F05, F06)
     otros = datos.get("otros_oficios", "")
     if otros:
-        _buscar_y_reemplazar(doc, "Otros Oficios desempeñados", otros)
+        _buscar_y_reemplazar(doc, "Otros Oficios desempeñados", otros, table_indices=[1])
     interes = datos.get("oficios_interes", "")
     if interes:
-        _buscar_y_reemplazar(doc, "Oficios de interés", interes)
+        _buscar_y_reemplazar(doc, "Oficios de interés", interes, table_indices=[1])
 
     # ─── SECCIÓN 4 — Descripción actividad laboral actual (Tabla 1, F08-F15) ───
     # Sección 4: filas con 1 celda merged (formato "Label: valor") — _buscar_y_reemplazar falla
@@ -1960,82 +2056,93 @@ def generar_valoracion_desempeno(datos, output_name=None):
     ant_cargo_val = l.get("antiguedad_cargo") or ""
     req_val = l.get("requerimientos_motrices") or ""
     _reemplazar_celda_entera(doc, "Nombre del cargo:",
-        f"Nombre del cargo: {cargo_val}", font_size=7.5)
+        f"Nombre del cargo: {cargo_val}", font_size=7.5, table_indices=[1])
     _reemplazar_celda_entera(doc, "Tareas (nombre y descripción):",
-        f"Tareas (nombre y descripción): {tareas_val}", font_size=7.5)
+        f"Tareas (nombre y descripción): {tareas_val}", font_size=7.5, table_indices=[1])
     _reemplazar_celda_entera(doc, "Herramientas de trabajo:",
-        f"Herramientas de trabajo: {herr_val}", font_size=7.5)
+        f"Herramientas de trabajo: {herr_val}", font_size=7.5, table_indices=[1])
     _reemplazar_celda_entera(doc, "Horario de trabajo:",
-        f"Horario de trabajo: {horario_val}", font_size=7.5)
+        f"Horario de trabajo: {horario_val}", font_size=7.5, table_indices=[1])
     _reemplazar_celda_entera(doc, "Elementos de Protección:",
-        f"Elementos de Protección: {epp_val}", font_size=7.5)
+        f"Elementos de Protección: {epp_val}", font_size=7.5, table_indices=[1])
     _reemplazar_celda_entera(doc, "Antigüedad en el cargo:",
-        f"Antigüedad en el cargo: {ant_cargo_val}", font_size=7.5)
+        f"Antigüedad en el cargo: {ant_cargo_val}", font_size=7.5, table_indices=[1])
     _reemplazar_celda_entera(doc, "Requerimientos motrices de la actividad:",
-        f"Requerimientos motrices de la actividad: {req_val}", font_size=7.5)
+        f"Requerimientos motrices de la actividad: {req_val}", font_size=7.5, table_indices=[1])
 
-    # Ocurrencia del ATEL (Tabla 1 F15): checkbox compuesto
-    # Estructura: "Ocurrencia del ATEL" | [X SI/NO] | PUESTO DE TRABAJO | SI | [X] | NO | ...
+    # Ocurrencia del ATEL (Tabla 1, buscar por label "Ocurrencia del ATEL")
     ocurrencia = l.get("ocurrencia_atel", "")
     lugar = l.get("lugar_atel", "")
     if ocurrencia or lugar:
-        # Buscar la fila que contiene "Ocurrencia del ATEL" en Tabla 1
-        for fila in doc.tables[1].rows:
-            if "ocurrencia del atel" in fila.cells[0].text.lower():
-                celdas = fila.cells
-                # Celda [1]: checkbox de Ocurrencia del ATEL (SI/NO)
+        try:
+            _fila_oc = None
+            for _r in doc.tables[1].rows:
+                if len(_r.cells) > 0 and "ocurrencia del atel" in _r.cells[0].text.lower():
+                    _fila_oc = _r
+                    break
+            if _fila_oc is not None and len(_fila_oc.cells) > 10:
+                # Limpiar todos los checkboxes previos
+                for _ci in [1, 4, 5, 9, 10]:
+                    if _ci < len(_fila_oc.cells):
+                        _poner_texto(_fila_oc.cells[_ci], "")
+                # Marcar SI/NO ocurrencia
                 if ocurrencia:
-                    _poner_texto(celdas[1], "")
                     if ocurrencia.strip().upper() == "SI":
-                        _poner_texto(celdas[1], "X")
-                # Celda [4]: checkbox de "SI" bajo PUESTO DE TRABAJO (o el lugar que corresponda)
-                # Celda [6]: checkbox de "NO" bajo PUESTO DE TRABAJO
-                # Celda [9]: checkbox de "x" bajo AREA
-                # Celda [10]: checkbox de "NO" bajo AREA
+                        _poner_texto(_fila_oc.cells[1], "X")
+                    elif ocurrencia.strip().upper() == "NO":
+                        pass  # NO checkbox no tiene celda separada
+                # Marcar lugar
                 if lugar:
                     lugar_upper = lugar.strip().upper()
-                    # Mapeo de lugar a celda checkbox (SI/NO)
                     if "PUESTO DE TRABAJO" in lugar_upper:
-                        _poner_texto(celdas[4], "X")  # marcar SI
-                        _poner_texto(celdas[9], "")  # limpiar checkbox AREA
+                        _poner_texto(_fila_oc.cells[4], "X")  # SI Puesto
                     elif "AREA" in lugar_upper:
-                        _poner_texto(celdas[9], "X")  # marcar AREA
-                        _poner_texto(celdas[4], "")  # limpiar checkbox PUESTO
-                break
+                        _poner_texto(_fila_oc.cells[9], "X")  # SI Area
+        except (IndexError, AttributeError) as e:
+            _log(f"[WARN] Error marcando Ocurrencia ATEL: {e}")
 
-    # ─── SECCIÓN 5 — Rol laboral (Tabla 1, F18-F21) ───
+    # ─── SECCIÓN 5 — Rol laboral (Tabla 1, buscar por label) ───
     rol = datos.get("rol_laboral", {}) or {}
-    # Usar _reemplazar_celda_entera para rol laboral (celdas merged en Tabla 1)
-    tareas_op = rol.get("tareas_operaciones") or ""
-    if tareas_op:
-        _reemplazar_celda_entera(doc, "Rol Laboral:", f"Rol Laboral: {tareas_op}", font_size=7.5)
-    else:
-        # Limpiar datos de Juan Carlos
-        _reemplazar_celda_entera(doc, "Rol Laboral:", "", font_size=7.5)
-    
-    # Sensorio-motor, cognitivo, psicológicos: van en una celda merged conjunta
-    sens = rol.get("sensorio_motor") or ""
-    cog = rol.get("cognitivo") or ""
-    psic = rol.get("psicologicos") or ""
-    soc = rol.get("social") or ""
-    
-    componentes = ""
-    if sens: componentes += f"Sensorio - motor: {sens}\n"
-    if cog: componentes += f"Cognitivo: {cog}\n"
-    if psic: componentes += f"Psicológicos: {psic}\n"
-    if soc: componentes += f"Social: {soc}"
-    
-    if componentes.strip():
-        _reemplazar_celda_entera(doc, "Sensorio - motor:", componentes.strip(), font_size=7.5)
-    else:
-        _reemplazar_celda_entera(doc, "Sensorio - motor:", "", font_size=7.5)
-    
-    tiempo_ej = rol.get("tiempo_ejecucion") or ""
-    if tiempo_ej:
-        _reemplazar_celda_entera(doc, "Tiempo de Ejecución:", f"Tiempo de Ejecución: {tiempo_ej}", font_size=7.5)
-    forma_int = rol.get("forma_integracion") or ""
-    if forma_int:
-        _reemplazar_celda_entera(doc, "Forma de integración laboral:", f"Forma de integración laboral: {forma_int}", font_size=7.5)
+    try:
+        _t1 = doc.tables[1]
+        # Buscar filas por label en lugar de indice fijo (la historia ocupacional inserta filas)
+        _rol_filas = {}
+        for _ri, _r in enumerate(_t1.rows):
+            _txt = _r.cells[0].text.lower() if len(_r.cells) > 0 else ""
+            if "tareas y operaciones" in _txt:
+                _rol_filas["tareas"] = _r
+            elif "componentes del desempe" in _txt:
+                _rol_filas["componentes"] = _r
+            elif "tiempo de ejecuci" in _txt:
+                _rol_filas["tiempo"] = _r
+            elif "forma de integraci" in _txt:
+                _rol_filas["forma"] = _r
+        
+        _tareas_op = rol.get("tareas_operaciones") or ""
+        if _tareas_op and "tareas" in _rol_filas and len(_rol_filas["tareas"].cells) > 2:
+            _poner_texto(_rol_filas["tareas"].cells[2], f"Rol Laboral: {_tareas_op}", font_size=7.5)
+        
+        _sens = rol.get("sensorio_motor") or ""
+        _cog = rol.get("cognitivo") or ""
+        _psic = rol.get("psicologicos") or ""
+        _soc = rol.get("social") or ""
+        _componentes = ""
+        if _sens: _componentes += f"Sensorio - motor: {_sens}\n"
+        if _cog: _componentes += f"Cognitivo: {_cog}\n"
+        if _psic: _componentes += f"Psicológicos: {_psic}\n"
+        if _soc: _componentes += f"Social: {_soc}"
+        if _componentes.strip() and "componentes" in _rol_filas and len(_rol_filas["componentes"].cells) > 2:
+            _poner_texto(_rol_filas["componentes"].cells[2], _componentes.strip(), font_size=7.5)
+        
+        _tiempo_ej = rol.get("tiempo_ejecucion") or ""
+        if _tiempo_ej and "tiempo" in _rol_filas and len(_rol_filas["tiempo"].cells) > 2:
+            _poner_texto(_rol_filas["tiempo"].cells[2], f"Tiempo de Ejecución: {_tiempo_ej}", font_size=7.5)
+        
+        _forma_int = rol.get("forma_integracion") or ""
+        if _forma_int and "forma" in _rol_filas and len(_rol_filas["forma"].cells) > 2:
+            _poner_texto(_rol_filas["forma"].cells[2], f"Forma de integración laboral: {_forma_int}", font_size=7.5)
+    except (IndexError, AttributeError) as e:
+        _log(f"[WARN] Error en Rol Laboral: {e}")
 
     # ─── SECCIÓN 6 — Tratamiento ATEL (Tabla 1, F23) ───
     # tratamiento_atel puede ser: string directo, lista de dicts, o None
@@ -2052,25 +2159,41 @@ def generar_valoracion_desempeno(datos, output_name=None):
     else:
         texto_trat = str(trat_raw)
     
-    if texto_trat.strip():
-        reemplazado = _reemplazar_celda_entera(doc, "ENFERMEDAD ACTUAL",
-                                               texto_trat.strip(), bold=False, font_size=7.5)
-        if not reemplazado:
-            # Fallback: buscar la celda del label "Tratamiento recibido"
-            _reemplazar_celda_entera(doc, "Tratamiento recibido por Rehabilitación",
-                                     texto_trat.strip(), bold=False, font_size=7.5)
-    else:
-        # Limpiar datos de Juan Carlos aunque no tengamos tratamiento propio
-        _reemplazar_celda_entera(doc, "ENFERMEDAD ACTUAL", "", bold=False, font_size=7.5)
+    texto_trat_clean = texto_trat.strip()
+    
+    # Sección 6 — Tratamiento ATEL (buscar por label "Tratamiento recibido")
+    tratamiento_reemplazado = False
+    try:
+        for _r_trat in doc.tables[1].rows:
+            if len(_r_trat.cells) > 0 and "tratamiento recibido" in _r_trat.cells[0].text.lower():
+                if len(_r_trat.cells) > 2:
+                    _poner_texto(_r_trat.cells[2], texto_trat_clean, bold=False, font_size=7.5)
+                    tratamiento_reemplazado = True
+                elif len(_r_trat.cells) > 1:
+                    _poner_texto(_r_trat.cells[1], texto_trat_clean, bold=False, font_size=7.5)
+                    tratamiento_reemplazado = True
+                break
+    except (IndexError, AttributeError) as e:
+        _log(f"[WARN] Error en busqueda tratamiento: {e}")
+                
+    if not tratamiento_reemplazado:
+        if texto_trat_clean:
+            reemplazado = _reemplazar_celda_entera(doc, "ENFERMEDAD ACTUAL",
+                                                   texto_trat_clean, bold=False, font_size=7.5, table_indices=[1])
+            if not reemplazado:
+                _reemplazar_celda_entera(doc, "Tratamiento recibido por Rehabilitación",
+                                         texto_trat_clean, bold=False, font_size=7.5, table_indices=[1])
+        else:
+            _reemplazar_celda_entera(doc, "ENFERMEDAD ACTUAL", "", bold=False, font_size=7.5, table_indices=[1])
 
     # ─── SECCIÓN 7 — Composición familiar (Tabla 2, F11-F17) ───
     fam = datos.get("composicion_familiar", {})
-    _buscar_y_reemplazar(doc, "Composición del núcleo familiar", fam.get("nucleo"))
-    _buscar_y_reemplazar(doc, "Fecha de nacimiento de cada integrante", fam.get("integrantes"))
-    _buscar_y_reemplazar(doc, "Persona(s) que sostiene económicamente el hogar", fam.get("sostenedor"))
-    _buscar_y_reemplazar(doc, "Ingreso Promedio en el hogar", fam.get("ingreso_promedio"))
-    _buscar_y_reemplazar(doc, "Responsabilidad económica en el hogar", fam.get("responsabilidad"))
-    _buscar_y_reemplazar(doc, "Convivencia actual", fam.get("convivencia"))
+    _buscar_y_reemplazar(doc, "Composición del núcleo familiar", fam.get("nucleo"), table_indices=[2])
+    _buscar_y_reemplazar(doc, "Fecha de nacimiento de cada integrante", fam.get("integrantes"), table_indices=[2])
+    _buscar_y_reemplazar(doc, "Persona(s) que sostiene económicamente el hogar", fam.get("sostenedor"), table_indices=[2])
+    _buscar_y_reemplazar(doc, "Ingreso Promedio en el hogar", fam.get("ingreso_promedio"), table_indices=[2])
+    _buscar_y_reemplazar(doc, "Responsabilidad económica en el hogar", fam.get("responsabilidad"), table_indices=[2])
+    _buscar_y_reemplazar(doc, "Convivencia actual", fam.get("convivencia"), table_indices=[2])
 
     # ─── Adaptaciones (Tabla 2, F00-F09) ───
     adaptaciones = datos.get("adaptaciones", {})
@@ -2081,47 +2204,74 @@ def generar_valoracion_desempeno(datos, output_name=None):
 
     # Calificación de PCL (F09)
     if s.get("pcl_aplica"):
-        _marcar_opcion(doc, "Calificación de PCL", "SI")
+        _marcar_opcion(doc, "Calificación de PCL", "SI", table_indices=[2])
     else:
-        _marcar_opcion(doc, "Calificación de PCL", "NO")
+        _marcar_opcion(doc, "Calificación de PCL", "NO", table_indices=[2])
 
     # ─── SECCIÓN 8 — Evaluación otras áreas ocupacionales ───
     areas = datos.get("areas_ocupacionales", {})
 
-    # Función helper para marcar nivel de dificultad en tabla 2 o 3
+    # Función helper para marcar nivel de dificultad en tabla 2 o 3 (v2 corregida)
     def _marcar_nivel_dificultad(doc, item_label, nivel_str, observacion=""):
         """Busca la fila que contiene item_label y marca X en la columna de nivel.
         Tabla 2 (12 cols): label(0-1) | NO DIF(2-3) | LEVE(4-5) | MOD(6-7) | SEV(8-9) | COMP(10) | OBS(11)
         Tabla 3 (7 cols):  label(0) | NO DIF(1) | LEVE(2) | MOD(3) | SEV(4) | COMP(5) | OBS(6)
+        - Busca SOLO en las primeras 2 celdas (label area) para evitar falsos matches
+        - Añade logging detallado para items no encontrados
         """
-        item_lower = item_label.lower().strip()
-        nivel_lower = nivel_str.lower().strip() if nivel_str else ""
-        if not nivel_lower or nivel_lower == "n/a":
+        import unicodedata
+        import re
+        import sys
+        
+        def _clean(s):
+            s = unicodedata.normalize("NFD", s.lower().strip())
+            s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+            return re.sub(r'[\s\-/,.:;()]+', '', s)
+
+        target = _clean(item_label)
+        if not target:
             return False
 
-        for tabla in doc.tables[2:4]:  # Tabla 2 y Tabla 3
+        nivel_lower = nivel_str.lower().strip() if nivel_str else ""
+        if not nivel_lower or nivel_lower in ("n/a", "na", ""):
+            return False
+
+        # Mapeos semánticos específicos entre el JSON del LLM y el template del Word
+        _mapeos_items = {
+            "higiene personal": "higiene personal",
+            "hacer los quehaceres de la casa": "realizar quehaceres",
+            "quehaceres de la casa": "realizar quehaceres",
+            "realizar quehaceres de la casa": "realizar quehaceres",
+            "limpiar / hacer oficio": "limpieza de la vivienda",
+            "limpiar hacer oficio": "limpieza de la vivienda",
+            "limpieza de la vivienda": "limpieza de la vivienda",
+            "produccion de mensajes no verbales": "produccion de mensajes no",
+        }
+        for k, v in _mapeos_items.items():
+            if _clean(k) in target:
+                target = _clean(v)
+                break
+
+        for tabla in doc.tables[2:4]:
             num_cols = len(tabla.columns)
-            # Determinar mapa de columnas según la tabla
             if num_cols >= 12:
-                # Tabla 2: columnas dobles
-                nivel_col_map = {
+                _nivel_map = {
                     "no dificultad": 2, "dificultad leve": 4,
                     "dificultad moderada": 6, "dificultad severa": 8,
                     "dificultad completa": 10,
                 }
-                obs_col = 11
+                _obs_col = 11
             else:
-                # Tabla 3: columnas simples
-                nivel_col_map = {
+                _nivel_map = {
                     "no dificultad": 1, "dificultad leve": 2,
                     "dificultad moderada": 3, "dificultad severa": 4,
                     "dificultad completa": 5,
                 }
-                obs_col = 6
+                _obs_col = 6
 
             col_target = None
-            for key, col in nivel_col_map.items():
-                if key in nivel_lower:
+            for k, col in _nivel_map.items():
+                if k in nivel_lower:
                     col_target = col
                     break
             if col_target is None:
@@ -2129,29 +2279,31 @@ def generar_valoracion_desempeno(datos, output_name=None):
 
             for fila in tabla.rows:
                 celdas = fila.cells
-                # Buscar si esta fila contiene el item
+                # Buscar SOLO en las primeras 2 celdas (label area)
                 found = False
-                for c in celdas:
-                    if item_lower in c.text.lower():
+                for c in celdas[:2]:
+                    cell_text = _clean(c.text)
+                    if target in cell_text:
                         found = True
                         break
                 if not found:
                     continue
 
-                # Limpiar TODAS las celdas de nivel en esta fila (para quitar X previas)
-                for col_clear in nivel_col_map.values():
+                # Limpiar SOLO celdas con X previa
+                for col_clear in _nivel_map.values():
                     if col_clear < len(celdas):
-                        txt = celdas[col_clear].text.strip()
-                        if txt == "X" or txt == "":
+                        if celdas[col_clear].text.strip().upper() == "X":
                             _poner_texto(celdas[col_clear], "")
 
-                # Marcar X en la columna correcta
+                # Marcar X
                 if col_target < len(celdas):
                     _poner_texto(celdas[col_target], "X")
                 # Observación
-                if observacion and obs_col < len(celdas):
-                    _poner_texto(celdas[obs_col], observacion)
+                if observacion and _obs_col < len(celdas):
+                    _poner_texto(celdas[_obs_col], observacion)
                 return True
+
+        _log(f"[WARN] Ítem de evaluación no encontrado en template: '{item_label}'")
         return False
 
     # Cuidado personal (Tabla 2, F22-F31)
@@ -2199,7 +2351,7 @@ def generar_valoracion_desempeno(datos, output_name=None):
 
     # ─── SECCIÓN 9 — Concepto ocupacional (Tabla 3 F39 + Tabla 4 F00) ───
     concepto = datos.get("concepto_ocupacional") or c.get("concepto") or c.get("concepto_desempeno") or datos.get("concepto_desempeno") or ""
-    if not concepto:
+    if not concepto or len(concepto) < 300:
         nombre = p.get("nombre", "el paciente")
         edad = p.get("edad", "")
         edad_str = f" de {edad} años" if edad else ""
@@ -2208,35 +2360,103 @@ def generar_valoracion_desempeno(datos, output_name=None):
         fecha_str = f" ocurrido el {fecha_ev}" if fecha_ev else ""
         diag = s.get("diagnosticos") or s.get("diagnostico_cie10") or "diagnóstico en estudio"
         cargo = l.get("cargo") or e.get("cargo") or "su cargo"
+        tareas = l.get("tareas", "")
+        horario = l.get("horario", "")
+        fam = datos.get("composicion_familiar", {})
+        nucleo = fam.get("nucleo", "")
+        ingreso = fam.get("ingreso_promedio", "")
+        responsabilidad = fam.get("responsabilidad", "")
+        rol_sens = (datos.get("rol_laboral") or {}).get("sensorio_motor", "")
+        rol_psic = (datos.get("rol_laboral") or {}).get("psicologicos", "")
+        rol_soc = (datos.get("rol_laboral") or {}).get("social", "")
         if genero == "F":
-            concepto = f"Afiliada {nombre}{edad_str}, a quien se le realiza la valoración de desempeño ocupacional por presentar {tipo_ev}{fecha_str} con diagnóstico de {diag}. Labora en el cargo de {cargo}."
+            afix = "Afiliada"
         else:
-            concepto = f"Afiliado {nombre}{edad_str}, a quien se le realiza la valoración de desempeño ocupacional por presentar {tipo_ev}{fecha_str} con diagnóstico de {diag}. Labora en el cargo de {cargo}."
-    
-    _reemplazar_celda_entera(doc, "Afiliado de", concepto, bold=False, font_size=7.5)
-    # Limpiar la celda de continuación en Tabla 4 Row 0 que contiene datos residuales de Juan Carlos
-    _reemplazar_celda_entera(doc, "Núcleo familiar:", "", bold=False)
+            afix = "Afiliado"
+        concepto = f"{afix} {nombre}{edad_str}, quien ingresa al consultorio caminando por sus propios medios y quien a la valoración del desempeño ocupacional se encontró sin dificultad en los procesos cognitivos de pensamiento lógico y coherente, orientado en tiempo, lugar y espacio, quien ingresa por {tipo_ev}{fecha_str} con diagnóstico: {diag}."
+        if nucleo:
+            concepto += f" {afix} vive con {nucleo}"
+            if ingreso or responsabilidad:
+                extras_fam = []
+                if ingreso: extras_fam.append(f"sostiene el hogar con un ingreso promedio de {ingreso}")
+                if responsabilidad: extras_fam.append(f"con responsabilidades económicas de {responsabilidad}")
+                concepto += ", " + ", ".join(extras_fam) + "."
+            else:
+                concepto += "."
+        if cargo:
+            concepto += f" Labora en el cargo de {cargo}"
+            if tareas:
+                concepto += f" con funciones de: {tareas}"
+            concepto += "."
+        if horario:
+            concepto += f" Horario de trabajo: {horario}."
+        componentes_list = []
+        if rol_sens: componentes_list.append(f"Sensorio - motor: {rol_sens}")
+        if rol_psic: componentes_list.append(f"Psicológicos: {rol_psic}")
+        if rol_soc: componentes_list.append(f"Social: {rol_soc}")
+        if componentes_list:
+            concepto += "\n\nComponentes de desempeño:\n" + "\n".join(componentes_list)
+        concepto += f"\n\n{afix} refiere que se encuentra laborando."
+    # (concepto se escribe al final, despues de toda la limpieza)
 
     # ─── SECCIÓN 10 — Orientación ocupacional (Tabla 4, F02) ───
     orientacion = datos.get("orientacion_ocupacional") or datos.get("orientacion") or ""
     if orientacion:
         if genero == "F":
             _reemplazar_celda_entera(doc, "El afiliado puede realizar",
-                orientacion.replace("El afiliado", "La afiliada"), bold=False)
+                orientacion.replace("El afiliado", "La afiliada"), bold=False, table_indices=[4])
         else:
-            _reemplazar_celda_entera(doc, "El afiliado puede realizar", orientacion, bold=False)
+            _reemplazar_celda_entera(doc, "El afiliado puede realizar", orientacion, bold=False, table_indices=[4])
 
     # ─── SECCIÓN 11 — Registro / Firmas (Tabla 4, F04-F07) ───
     prov = datos.get("proveedor", {})
     nombre_prov = prov.get("nombre", "SANDRA PATRICIA POLANIA OSORIO")
     ips_prov = prov.get("ips", "REHABILITACION INTEGRAL LABORAL Y OCUPACIONAL SAS")
-    # Only replace the Elaboró column (pre-filled with Sandra's name in template).
-    # "Nombre y Apellido" is the Revisión placeholder — leave it for the reviewer.
-    _reemplazar_en_tablas(doc, "SANDRA PATRICIA POLANIA OSORIO", nombre_prov)
-    _reemplazar_en_tablas(doc, "REHABILITACION INTEGRAL LABORAL Y OCUPACIONAL SAS", ips_prov)
+    # Only replace in Tabla 4 (table_indices=[4]) to avoid corrupting concepto in Tabla 3
+    _reemplazar_en_tablas(doc, "SANDRA PATRICIA POLANIA OSORIO", nombre_prov, table_indices=[4])
+    _reemplazar_en_tablas(doc, "REHABILITACION INTEGRAL LABORAL Y OCUPACIONAL SAS", ips_prov, table_indices=[4])
 
     # Firma
     _insertar_firma(doc)
+
+    # Limpieza agresiva de datos residuales de Juan Carlos Duran en el template
+    _valores_a_limpiar = [
+        "JUAN CARLOS DURAN NARVAEZ",
+        "BOLIVARIANA DE MINERALES Y CIA LTDA",
+        "Obrero de tratamiento roca",
+        "Soldado Profesional",
+        "EJERCITO NACIONAL",
+        "Ingrid Johan Vargas Reyes",
+        "bolivarianamineralesgh@gmail.com",
+        "3143009418",
+        "KM 2 VIA NEIVA - PALERMO",
+        "860517272",
+        "1 anio 4 meses aprox.",
+        "1 año 4 meses aprox.",
+        "HERIDA DEL CUARTO DEDO",
+        "S611 HERIDA DEL CUARTO DEDO",
+        "S601 CONTUSION DEL CUARTO DEDO",
+        "02/03/2026",
+        "06/04/2026",
+        "Sin datos",
+    ]
+    for valor in _valores_a_limpiar:
+        _reemplazar_en_parrafos(doc, valor, "[VERIFICAR]")
+        _reemplazar_en_tablas(doc, valor, "[VERIFICAR]")
+
+    # Escribir concepto al final (despues de limpieza para evitar corruptelas)
+    try:
+        if len(doc.tables) > 3 and len(doc.tables[3].rows) > 39:
+            _poner_texto(doc.tables[3].rows[39].cells[0], concepto, bold=False, font_size=7.5)
+        # T4F0: solo limpiar si tiene contenido residual de Juan Carlos (no dejar fila en blanco)
+        if len(doc.tables) > 4 and len(doc.tables[4].rows) > 0:
+            t4f0_text = doc.tables[4].rows[0].cells[0].text.strip()
+            if t4f0_text and ("afiliado" in t4f0_text.lower() or "núcleo" in t4f0_text.lower() or "nucleo" in t4f0_text.lower()):
+                _poner_texto(doc.tables[4].rows[0].cells[0], "", bold=False, font_size=7.5)
+    except (IndexError, AttributeError) as e:
+        _log(f"[WARN] Error escribiendo concepto: {e}")
+        _reemplazar_celda_entera(doc, "Afiliado de", concepto, bold=False, font_size=7.5, table_indices=[3, 4])
+        _reemplazar_celda_entera(doc, "Núcleo familiar:", "", bold=False, table_indices=[3, 4])
 
     doc.save(str(dst))
     _convertir_a_pdf(str(dst))
